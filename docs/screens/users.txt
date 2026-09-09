@@ -1,0 +1,42 @@
+Tenant   aetherforge-demo-tenant                : view                                                                        ┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬
+Account  kaelen.stormrider0@aetherforge.onmi…   / search                                                                      ├┤ │││ │ ├┬┘├─┤   │ │ ││
+Signed   demo                                   ~ home                                                                        └─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴
+Status   connected                              ? help
+                                                q quit
+┌──────────────────────────────────────────────────────────── Users · 100 of 420 · ↑name ────────────────────────────────────────────────────────────┐
+│NAME                                     USER PRINCIPAL NAME                                     TYPE   ENABLED DEPARTMENT                          │
+│Bram Ashvale                             bram.ashvale92@aetherforge.onmicrosoft.com              Member yes     Audio                               │
+│Bram Duskbane                            bram.duskbane148@aetherforge.onmicrosoft.com            Member yes     Narrative                           │
+│Bram Emberfall                           bram.emberfall36@aetherforge.onmicrosoft.com            Member yes     Live Ops                            │
+│Bram Frostmoor                           bram.frostmoor204@aetherforge.onmicrosoft.com           Member yes     Narrative                           │
+│Bram Gildenmoor                          bram.gildenmoor400@aetherforge.onmicrosoft.com          Member yes     Narrative                           │
+│Bram Grimsend                            bram.grimsend260@aetherforge.onmicrosoft.com            Member no      Player Support                      │
+│Bram Hollowmere                          bram.hollowmere344@aetherforge.onmicrosoft.com          Member yes     Quality Assurance                   │
+│Bram Nightwood                           bram.nightwood64@aetherforge.onmicrosoft.com            Member yes     Audio                               │
+│Bram Ravenholt                           bram.ravenholt288@aetherforge.onmicrosoft.com           Member yes     Audio                               │
+│Bram Silverbrook                         bram.silverbrook316@aetherforge.onmicrosoft.com         Guest  yes     Quality Assurance                   │
+│Bram Stormrider                          bram.stormrider8@aetherforge.onmicrosoft.com            Member yes     Publishing                          │
+│Bram Thornquist                          bram.thornquist232@aetherforge.onmicrosoft.com          Member yes     Gameplay                            │
+│Bram Windmere                            bram.windmere176@aetherforge.onmicrosoft.com            Member yes     Gameplay                            │
+│Cassia Ashvale                           cassia.ashvale91@aetherforge.onmicrosoft.com            Member yes     Player Support                      │
+│Cassia Blackwater                        cassia.blackwater371@aetherforge.onmicrosoft.com        Member yes     Narrative                           │
+│Cassia Emberfall                         cassia.emberfall35@aetherforge.onmicrosoft.com          Guest  yes     Art & Animation                     │
+│Cassia Frostmoor                         cassia.frostmoor203@aetherforge.onmicrosoft.com         Member yes     Player Support                      │
+│Cassia Grimsend                          cassia.grimsend259@aetherforge.onmicrosoft.com          Member no      Gameplay                            │
+│Cassia Hollowmere                        cassia.hollowmere343@aetherforge.onmicrosoft.com        Guest  yes     Quality Assurance                   │
+│Cassia Ironhollow                        cassia.ironhollow119@aetherforge.onmicrosoft.com        Guest  yes     Narrative                           │
+│Cassia Nightwood                         cassia.nightwood63@aetherforge.onmicrosoft.com          Member yes     Narrative                           │
+│Cassia Ravenholt                         cassia.ravenholt287@aetherforge.onmicrosoft.com         Member yes     Publishing                          │
+│Cassia Silverbrook                       cassia.silverbrook315@aetherforge.onmicrosoft.com       Member yes     Gameplay                            │
+│Cassia Stormrider                        cassia.stormrider7@aetherforge.onmicrosoft.com          Guest  yes     Art & Animation                     │
+│Cassia Thornquist                        cassia.thornquist231@aetherforge.onmicrosoft.com        Member yes     Player Support                      │
+│Cassia Windmere                          cassia.windmere175@aetherforge.onmicrosoft.com          Guest  yes     Live Ops                            │
+│Corvin Ashvale                           corvin.ashvale98@aetherforge.onmicrosoft.com            Member yes     Narrative                           │
+│Corvin Blackwater                        corvin.blackwater378@aetherforge.onmicrosoft.com        Member yes     Engine                              │
+│Corvin Duskbane                          corvin.duskbane154@aetherforge.onmicrosoft.com          Member yes     Art & Animation                     │
+│Corvin Emberfall                         corvin.emberfall42@aetherforge.onmicrosoft.com          Member yes     Live Ops                            │
+│Corvin Gildenmoor                        corvin.gildenmoor406@aetherforge.onmicrosoft.com        Member yes     Engine                              │
+│Corvin Grimsend                          corvin.grimsend266@aetherforge.onmicrosoft.com          Member yes     Gameplay                            │
+└─────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────┘
+
+enter describe  ·  / search  ·  1-0 recent  ·  : view  ·  r refresh  ·  c copy id  ·  esc dashboard  ·  ? help

@@ -1,0 +1,42 @@
+Tenant   aetherforge-demo-tenant                : view                                                                        ┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬
+Account  kaelen.stormrider0@aetherforge.onmi…   / search                                                                      ├┤ │││ │ ├┬┘├─┤   │ │ ││
+Signed   demo                                   ~ home                                                                        └─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴
+Status   connected                              ? help
+                                                q quit
+┌───────────────────────────────────────────────────────── Users · Bram Ashvale · sections ──────────────────────────────────────────────────────────┐
+│▌ ESSENTIALS                                                                ▌ ORGANISATION                                                          │
+│  Display name         Bram Ashvale                                           Job title            Gameplay Engineer                                │
+│  User principal name  bram.ashvale92@aetherforge.onmicrosoft.com             Department           Audio                                            │
+│  Mail                 bram.ashvale92@aetherforge.games                       Employee ID          E01092                                           │
+│  Object ID            u0092                                                  Office               Duskhaven                                        │
+│  User type            Member                                                 Usage location       US                                               │
+│  Account enabled      yes                                                                                                                          │
+│  Created              0000-00-00 (····· ago)                               ▌ CONTACT                                                               │
+│                                                                              Mobile               +44 20 7946 4942                                 │
+│                                                                                                                                                    │
+│                                                                            ▌ ON-PREMISES SYNC                                                      │
+│                                                                              Synced               no                                               │
+│                                                                                                                                                    │
+│ Groups (2)                                                                                                                                         │
+│┌─────────────────────────────────────────────────────────────────────────────────────────────────────┬───────────────────────┬────────────────────┐│
+││ NAME                                                                                                │ TYPE                  │ MAIL               ││
+│├─────────────────────────────────────────────────────────────────────────────────────────────────────┼───────────────────────┼────────────────────┤│
+││ Gameplay Council 86                                                                                 │ Group                 │ -                  ││
+││ Shattered Crown Squad 2                                                                             │ Group                 │ -                  ││
+│└─────────────────────────────────────────────────────────────────────────────────────────────────────┴───────────────────────┴────────────────────┘│
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+pgup/pgdn properties  ·  ↑/↓ list  ·  R raw json  ·  c copy id  ·  esc back

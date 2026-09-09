@@ -52,6 +52,11 @@ type Options struct {
 	// CacheDir holds the quick-search cache. Empty means the user's own
 	// cache directory; tests point it somewhere disposable.
 	CacheDir string
+
+	// Client and Identity bypass sign-in when supplied, which is how demo
+	// mode runs with no tenant behind it.
+	Client   *graph.Client
+	Identity auth.Identity
 }
 
 // Model is the root Bubble Tea model.
@@ -154,15 +159,22 @@ func New(ctx context.Context, opts Options) Model {
 		input:     ti,
 		spin:      sp,
 	}
-	// Sign-in starts immediately and unattended: there is nothing to ask, so
-	// there is no screen to flash. The dashboard shows the attempt in its
-	// status line and fills in as the tokens and counts arrive.
-	//
-	// The attempt is numbered here, not in Init: Init takes the model by
-	// value, so an increment there would be discarded and the reply dropped
-	// as stale.
-	m.authing = true
-	m.authAttempt = 1
+	// A supplied client means there is nothing to sign in to -- demo mode.
+	if opts.Client != nil {
+		m.client = opts.Client
+		m.identity = opts.Identity
+	} else {
+		// Sign-in starts immediately and unattended: there is nothing to
+		// ask, so there is no screen to flash. The dashboard shows the
+		// attempt in its status line and fills in as the tokens and counts
+		// arrive.
+		//
+		// The attempt is numbered here, not in Init: Init takes the model by
+		// value, so an increment there would be discarded and the reply
+		// dropped as stale.
+		m.authing = true
+		m.authAttempt = 1
+	}
 	m.dashCursor = dashboardIndexOf(opts.Resource.Kind)
 	return m
 }
@@ -192,6 +204,9 @@ func (m Model) retryAuth() (Model, tea.Cmd) {
 // Init starts the spinner, the listener for the sign-in URL, and the
 // unattended sign-in.
 func (m Model) Init() tea.Cmd {
+	if m.client != nil {
+		return tea.Batch(m.spin.Tick, m.loadTotals())
+	}
 	return tea.Batch(
 		m.spin.Tick,
 		waitForAuthURL(m.authURLCh),

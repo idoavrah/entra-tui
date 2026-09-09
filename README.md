@@ -1,6 +1,8 @@
 # entra-tui
 
-A read-only terminal UI for **Microsoft Entra ID**, in the spirit of
+[![CI](https://github.com/idoavrah/entra-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/idoavrah/entra-tui/actions/workflows/ci.yml)
+
+A terminal UI for **Microsoft Entra ID**, in the spirit of
 [k9s](https://k9scli.io) and [terraform-tui](https://github.com/idoavrah/terraform-tui).
 
 Browse users, groups, app registrations and enterprise applications from the
@@ -30,13 +32,25 @@ pgup/pgdn properties · ←/→ tab · ↑/↓ list · a add member · o add own
 go install github.com/idoavrah/entra-tui/cmd/entra-tui@latest
 ```
 
-Or build from source:
+Or download a binary from the [releases](https://github.com/idoavrah/entra-tui/releases),
+or build from source:
 
 ```sh
 git clone https://github.com/idoavrah/entra-tui
 cd entra-tui
 go build ./cmd/entra-tui
 ```
+
+## Try it without a tenant
+
+```sh
+entra-tui -demo
+```
+
+Demo mode runs against a generated directory served in-process — a fictional
+game studio with ~420 people, 130 groups, 85 app registrations and 160
+devices. No tenant, no sign-in, no network. It is what the screen captures in
+[`docs/screens/`](docs/screens) are rendered from.
 
 ## How it flows
 
@@ -351,6 +365,8 @@ Every flag has an environment variable; flags win.
 | `-page-size` | `ENTRA_TUI_PAGE_SIZE` | `100` |
 | `-graph-url` | `ENTRA_TUI_GRAPH_URL` | `https://graph.microsoft.com/v1.0` |
 | `-view` | — | `users` (preselects a dashboard tile) |
+| `-demo` | — | off — runs against a generated directory |
+| `-version` | — | print the build stamp and exit |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).
 
@@ -359,18 +375,47 @@ Every flag has an environment variable; flags win.
 ```sh
 go test ./...        # unit tests, no network
 go vet ./...
+gofmt -l .
 ```
 
 Layout:
 
 ```
 cmd/entra-tui/       entry point: parse config, start the TUI
-internal/auth/       delegated token acquisition (PKCE, Azure CLI)
+internal/auth/       delegated token acquisition (Azure CLI, PKCE)
 internal/bidi/       right-to-left reordering for non-bidi terminals
 internal/config/     flag + environment resolution
-internal/graph/      paged read-only Graph client, resources, detail sections
+internal/demo/       generated directory and an in-process Graph stand-in
+internal/graph/      paged Graph client, resources, detail sections
 internal/ui/         Bubble Tea model, screens, dialogs, frame and table layout
 ```
+
+### Screen captures
+
+`docs/screens/*.txt` are rendered from the demo directory by a test, not
+taken by hand. Regenerate them after a layout change:
+
+```sh
+go test ./internal/ui -run ScreenCaptures -update
+```
+
+CI fails if they are stale, so a change to the layout shows up as a readable
+diff in review rather than as nothing at all.
+
+### The demo stand-in enforces `$select`
+
+`internal/demo` refuses a projection naming a property its collection does not
+declare, exactly as Graph does. That is deliberate: a fake that quietly
+ignores `$select` let a bad projection on `memberOf` — a `directoryObject`
+collection asked for a group-only property — reach a real tenant, where it
+failed the whole request. The stand-in catches that class of bug locally now.
+
+### Releases
+
+Tagging `v*` runs [GoReleaser](https://goreleaser.com), which builds Linux,
+macOS and Windows binaries for amd64 and arm64, and publishes them with
+checksums. The tests run first: a release that does not pass them is worse
+than no release.
 
 The Graph client keeps objects as loosely typed maps rather than generated
 structs, which is why the detail pane can show every property Graph returns

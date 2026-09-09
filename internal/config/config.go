@@ -22,6 +22,10 @@ type Config struct {
 	PageSize int
 	GraphURL string
 	Resource graph.Resource
+	// Demo runs against a generated directory instead of a real tenant.
+	Demo bool
+	// Version asks for the build stamp and nothing else.
+	Version bool
 }
 
 // Env var names, all prefixed so they cannot collide with the Azure CLI's own.
@@ -58,6 +62,8 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 		pageSize = fs.Int("page-size", 0, "objects requested per Graph page (1-999)")
 		graphURL = fs.String("graph-url", "", "Graph endpoint, for sovereign clouds")
 		resource = fs.String("view", "users", "view to open on: users, groups, appregs, entapps or devices")
+		demo     = fs.Bool("demo", false, "run against a generated directory, with no tenant and no sign-in")
+		version  = fs.Bool("version", false, "print the build version and exit")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -85,6 +91,9 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	if err != nil {
 		return Config{}, err
 	}
+
+	cfg.Demo = *demo
+	cfg.Version = *version
 
 	res, ok := graph.Lookup(*resource)
 	if !ok {
@@ -162,6 +171,9 @@ Environment:
   ENTRA_TUI_SCOPES      same as -scopes
   ENTRA_TUI_PAGE_SIZE   same as -page-size
   ENTRA_TUI_GRAPH_URL   same as -graph-url
+
+Use -demo to explore the interface against a generated directory, with no
+tenant, no sign-in and no network.
 
 entra-tui works with your own delegated permissions. It reads the directory
 and can add and remove members and owners; it creates, deletes and renames

@@ -1,0 +1,42 @@
+Tenant   aetherforge-demo-tenant                : view                                                                        ┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬
+Account  kaelen.stormrider0@aetherforge.onmi…   / search                                                                      ├┤ │││ │ ├┬┘├─┤   │ │ ││
+Signed   demo                                   ~ home                                                                        └─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴
+Status   connected                              ? help
+                                                q quit
+┌────────────────────────────────────────────────── Groups · Art & Animation Council 66 · sections ──────────────────────────────────────────────────┐
+│▌ ESSENTIALS                                                                ▌ MEMBERSHIP                                                            │
+│  Display name      Art & Animation Council 66                                Group types       Unified                                             │
+│  Description       Ships and operates Hollow Tide                            Role-assignable   no                                                  │
+│  Object ID         g0066                                                                                                                           │
+│  Group type        Microsoft 365                                           ▌ MAIL                                                                  │
+│  Membership        Assigned                                                  Mail              team66@aetherforge.games                            │
+│  Visibility        Private                                                   Nickname          team66                                              │
+│  Created           0000-00-00 (···· ago)                                     Mail enabled      yes                                                 │
+│                                                                              Security enabled  yes                                                 │
+│                                                                                                                                                    │
+│                                                                            ▌ ON-PREMISES SYNC                                                      │
+│                                                                              Synced            no                                                  │
+│                                                                                                                                                    │
+│ Owners (3) │ Members (13)   ←/→                                                                                                                    │
+│┌──────────────────────────────────┬──────────┬────────────────────────────────────────────────────────────────────────────────────────────────────┐│
+││ NAME                             │ TYPE     │ SIGN-IN NAME                                                                                       ││
+│├──────────────────────────────────┼──────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤│
+││ Corvin Ashvale                   │ User     │ corvin.ashvale98@aetherforge.onmicrosoft.com                                                       ││
+││ Rowan Blackwater                 │ User     │ rowan.blackwater386@aetherforge.onmicrosoft.com                                                    ││
+││ Fenris Ravenholt                 │ User     │ fenris.ravenholt296@aetherforge.onmicrosoft.com                                                    ││
+│└──────────────────────────────────┴──────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┘│
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+│                                                                                                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+pgup/pgdn properties  ·  ←/→ tab  ·  ↑/↓ list  ·  R raw json  ·  a add member  ·  o add owner  ·  d remove  ·  c copy id  ·  esc back
