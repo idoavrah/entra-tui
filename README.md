@@ -16,10 +16,11 @@ More screens: [docs/screens.md](docs/screens.md)
 ## Install
 
 ```sh
-go install github.com/idoavrah/entra-tui/cmd/entra-tui@latest
+brew install idoavrah/homebrew/entra-tui
 ```
 
-Or grab a binary from [Releases](https://github.com/idoavrah/entra-tui/releases).
+Or `go install github.com/idoavrah/entra-tui/cmd/entra-tui@latest`, or grab a
+binary from [Releases](https://github.com/idoavrah/entra-tui/releases).
 
 Sign in with the [Azure CLI](https://aka.ms/azure-cli) — the only supported
 method — and run it:
