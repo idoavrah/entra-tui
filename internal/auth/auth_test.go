@@ -99,24 +99,40 @@ func TestParseMethod(t *testing.T) {
 	}
 }
 
-func TestDefaultScopesAreLeastPrivilege(t *testing.T) {
+func TestDefaultScopesCoverEveryViewAndTheEdits(t *testing.T) {
 	scopes := DefaultScopes()
 	joined := strings.Join(scopes, " ")
 
-	for _, want := range []string{"User.Read.All", "Group.Read.All", "Application.Read.All"} {
+	for _, want := range []string{
+		"User.Read.All",             // users
+		"Device.Read.All",           // devices
+		"GroupMember.ReadWrite.All", // a user's groups, a group's members
+		"Group.ReadWrite.All",       // groups and their owners
+		"Application.ReadWrite.All", // app registrations, enterprise apps, owners
+	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("default scopes %v missing %s", scopes, want)
 		}
 	}
-	// Directory.Read.All would grant far more than the four read-only views
-	// need; Application.Read.All already covers both app collections.
-	if strings.Contains(joined, "Directory.Read.All") {
-		t.Errorf("default scopes %v include the broad Directory.Read.All", scopes)
-	}
-	// Nothing that permits a write may ever appear here.
-	for _, forbidden := range []string{"ReadWrite", ".Write", "Directory.AccessAsUser"} {
+}
+
+func TestDefaultScopesStayNarrow(t *testing.T) {
+	joined := strings.Join(DefaultScopes(), " ")
+
+	// The tenant-wide scopes would grant far more than any view needs.
+	for _, forbidden := range []string{
+		"Directory.Read.All", "Directory.ReadWrite.All", "Directory.AccessAsUser.All",
+	} {
 		if strings.Contains(joined, forbidden) {
-			t.Errorf("default scopes %v include a write-capable scope %q", scopes, forbidden)
+			t.Errorf("default scopes include the broad %s", forbidden)
+		}
+	}
+
+	// A ReadWrite scope covers its Read counterpart, so asking for both
+	// would only lengthen the consent prompt.
+	for _, redundant := range []string{"Group.Read.All", "GroupMember.Read.All", "Application.Read.All"} {
+		if strings.Contains(joined, redundant+" ") || strings.HasSuffix(joined, redundant) {
+			t.Errorf("default scopes include %s alongside its ReadWrite counterpart", redundant)
 		}
 	}
 }

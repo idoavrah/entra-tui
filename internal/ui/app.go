@@ -52,8 +52,6 @@ type Options struct {
 	// CacheDir holds the quick-search cache. Empty means the user's own
 	// cache directory; tests point it somewhere disposable.
 	CacheDir string
-	// Write enables membership and ownership changes.
-	Write bool
 }
 
 // Model is the root Bubble Tea model.
@@ -105,10 +103,11 @@ type Model struct {
 	detailRaw      bool
 	detailLoading  bool
 	detailVP       viewport.Model
-	// detailEntries are the selectable members and owners in the pane, and
-	// detailCursor indexes them.
-	detailEntries []detailEntry
-	detailCursor  int
+	// detailTab is the list tab in front; tabCursor and tabOffset are the
+	// selection and scroll position within it.
+	detailTab int
+	tabCursor int
+	tabOffset int
 
 	// --- modal --------------------------------------------------------
 	modal       modalKind
@@ -274,52 +273,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// refreshDetail re-renders the pane, records where its selectable entries
-// landed, and scrolls the selection into view.
+// refreshDetail re-renders the property region and keeps the tab selection
+// within range of whatever the object turned out to have.
 func (m Model) refreshDetail() Model {
-	body, entries := m.buildDetailBody()
-	m.detailEntries = entries
-	if m.detailCursor >= len(entries) {
-		m.detailCursor = max(0, len(entries)-1)
-	}
-	m.detailVP.SetContent(body)
-	return m.scrollToSelection()
-}
+	m.detailVP.SetContent(m.propertyContent())
 
-// scrollToSelection nudges the viewport so the selected entry is on screen.
-func (m Model) scrollToSelection() Model {
-	entry, ok := m.selectedEntry()
-	if !ok {
+	lists := m.listSections()
+	if len(lists) == 0 {
+		m.detailTab, m.tabCursor, m.tabOffset = 0, 0, 0
 		return m
 	}
-	top := m.detailVP.YOffset
-	height := m.detailVP.Height
-	switch {
-	case entry.line < top:
-		m.detailVP.SetYOffset(entry.line)
-	case entry.line >= top+height:
-		m.detailVP.SetYOffset(entry.line - height + 1)
+	m.detailTab = clamp(m.detailTab, 0, len(lists)-1)
+
+	rows := len(lists[m.detailTab].Fields)
+	m.tabCursor = clamp(m.tabCursor, 0, max(0, rows-1))
+	return m.scrollTab()
+}
+
+// scrollTab keeps the selected row inside the visible slice of the tab.
+func (m Model) scrollTab() Model {
+	height := m.tabRowsHeight()
+	if height <= 0 {
+		return m
 	}
+	if m.tabCursor < m.tabOffset {
+		m.tabOffset = m.tabCursor
+	}
+	if m.tabCursor >= m.tabOffset+height {
+		m.tabOffset = m.tabCursor - height + 1
+	}
+	m.tabOffset = max(0, m.tabOffset)
 	return m
 }
 
-// selectedEntry is the member or owner under the cursor.
-func (m Model) selectedEntry() (detailEntry, bool) {
-	if m.detailCursor < 0 || m.detailCursor >= len(m.detailEntries) {
-		return detailEntry{}, false
-	}
-	return m.detailEntries[m.detailCursor], true
-}
-
-// detailHasRelationship reports whether the open object has an editable
-// collection of the given kind.
-func (m Model) detailHasRelationship(rel graph.Relationship) bool {
-	for _, s := range m.detailSections {
-		if s.Relationship == rel {
-			return true
-		}
-	}
-	return false
+// tabRowsHeight is how many list rows fit below the properties.
+func (m Model) tabRowsHeight() int {
+	total := m.contentHeight()
+	return max(0, total-m.propertyHeight(total)-tabBarHeight)
 }
 
 // ownerRelationship is the name this object's owners live under: devices
@@ -468,12 +458,9 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.toDashboard()
 
 	case key.Matches(msg, keys.Back):
-		// Esc peels back one layer: an active search first, then the view
-		// itself, landing on the dashboard.
-		if m.coll.search != "" {
-			m.coll.search = ""
-			return m.reload()
-		}
+		// Esc leaves, it does not unpick. Clearing a search on the way out
+		// meant two presses to get home and a wasted round trip in between;
+		// the search is cleared by running an empty one.
 		return m.toDashboard()
 
 	case key.Matches(msg, keys.Enter):
@@ -514,15 +501,20 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	// Arrows walk the members and owners; pages scroll the whole pane. A
 	// long object is read by paging, and its people are picked by arrowing.
+	// Arrows work the lists below; pages scroll the properties above.
 	case key.Matches(msg, keys.Up):
-		return m.moveDetailCursor(-1)
+		return m.moveTabCursor(-1)
 	case key.Matches(msg, keys.Down):
-		return m.moveDetailCursor(1)
+		return m.moveTabCursor(1)
+	case key.Matches(msg, keys.Left):
+		return m.moveTab(-1)
+	case key.Matches(msg, keys.Right):
+		return m.moveTab(1)
 	case key.Matches(msg, keys.PageUp):
-		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset-m.detailVP.Height))
+		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset-m.propertyHeight(m.contentHeight())))
 		return m, nil
 	case key.Matches(msg, keys.PageDown):
-		m.detailVP.SetYOffset(m.detailVP.YOffset + m.detailVP.Height)
+		m.detailVP.SetYOffset(m.detailVP.YOffset + m.propertyHeight(m.contentHeight()))
 		return m, nil
 	case key.Matches(msg, keys.Home):
 		m.detailVP.GotoTop()
@@ -565,15 +557,27 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// moveDetailCursor walks the selectable entries, scrolling the pane by a
-// line when there are none to walk.
-func (m Model) moveDetailCursor(delta int) (tea.Model, tea.Cmd) {
-	if len(m.detailEntries) == 0 {
+// moveTabCursor walks the active list, scrolling the properties instead when
+// there is no list to walk.
+func (m Model) moveTabCursor(delta int) (tea.Model, tea.Cmd) {
+	section, ok := m.activeSection()
+	if !ok || len(section.Fields) == 0 {
 		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset+delta))
 		return m, nil
 	}
-	m.detailCursor = clamp(m.detailCursor+delta, 0, len(m.detailEntries)-1)
-	return m.refreshDetail(), nil
+	m.tabCursor = clamp(m.tabCursor+delta, 0, len(section.Fields)-1)
+	return m.scrollTab(), nil
+}
+
+// moveTab switches between lists, starting the new one from the top.
+func (m Model) moveTab(delta int) (tea.Model, tea.Cmd) {
+	lists := m.listSections()
+	if len(lists) < 2 {
+		return m, nil
+	}
+	m.detailTab = clamp(m.detailTab+delta, 0, len(lists)-1)
+	m.tabCursor, m.tabOffset = 0, 0
+	return m, nil
 }
 
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -721,7 +725,7 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	m.detail = graph.Detail{Kind: m.coll.res.Kind, Object: item}
 	m.detailSections = graph.Sections(m.detail)
 	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
-	m.detailCursor = 0
+	m.detailTab, m.tabCursor, m.tabOffset = 0, 0, 0
 	m = m.refreshDetail()
 
 	if m.detailID == "" {
@@ -772,7 +776,7 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	m.detail = graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}}
 	m.detailSections = graph.Sections(m.detail)
 	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
-	m.detailCursor = 0
+	m.detailTab, m.tabCursor, m.tabOffset = 0, 0, 0
 	m = m.refreshDetail()
 	m.err = nil
 	return m, m.loadDetail(res, c.ID)

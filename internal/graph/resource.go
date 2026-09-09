@@ -27,6 +27,20 @@ func (k Kind) Title() string {
 	return string(k)
 }
 
+// RowState classifies a row so the table can colour it as a whole. Reading
+// one flag out of a column of fifty is what a colour is for.
+type RowState int
+
+const (
+	// RowNormal is an object in good standing.
+	RowNormal RowState = iota
+	// RowMuted is disabled or otherwise inert: present, but not in use.
+	RowMuted
+	// RowWarn needs attention -- an expired credential, a non-compliant
+	// device.
+	RowWarn
+)
+
 // Column is one table column. Width is negotiated at render time: every
 // column is guaranteed MinWidth, and any leftover terminal width is shared
 // out in proportion to Weight. A Weight of zero pins the column to MinWidth,
@@ -61,6 +75,8 @@ type Resource struct {
 	Columns []Column
 	// Accent tints the resource in the header, the way k9s colours contexts.
 	Accent string
+	// State classifies a row for colouring. Nil means every row is normal.
+	State func(Item) RowState
 }
 
 // Row renders one item into cell strings, one per column.
@@ -112,6 +128,15 @@ func devicesResource() Resource {
 		OrderBy:      "displayName",
 		SearchFields: []string{"displayName"},
 		Accent:       "#7dcfff",
+		State: func(i Item) RowState {
+			if enabled, ok := i.Bool("accountEnabled"); ok && !enabled {
+				return RowMuted
+			}
+			if compliant, ok := i.Bool("isCompliant"); ok && !compliant {
+				return RowWarn
+			}
+			return RowNormal
+		},
 		Columns: []Column{
 			{Title: "NAME", MinWidth: 16, Weight: 4, Value: func(i Item) string { return i.String("displayName") }},
 			{Title: "OS", MinWidth: 10, Weight: 1, Value: func(i Item) string { return i.String("operatingSystem") }},
@@ -159,6 +184,12 @@ func usersResource() Resource {
 		OrderBy:      "displayName",
 		SearchFields: []string{"displayName", "userPrincipalName", "mail"},
 		Accent:       "#7aa2f7",
+		State: func(i Item) RowState {
+			if enabled, ok := i.Bool("accountEnabled"); ok && !enabled {
+				return RowMuted
+			}
+			return RowNormal
+		},
 		Columns: []Column{
 			{Title: "NAME", MinWidth: 16, Weight: 3, Value: func(i Item) string { return i.String("displayName") }},
 			{Title: "USER PRINCIPAL NAME", MinWidth: 20, Weight: 4, Value: func(i Item) string { return i.String("userPrincipalName") }},
@@ -240,17 +271,23 @@ func appRegistrationsResource() Resource {
 		Select: []string{
 			"id", "appId", "displayName", "signInAudience", "createdDateTime",
 			"publisherDomain", "description", "identifierUris", "tags",
-			"passwordCredentials", "keyCredentials", "web", "api",
+			"passwordCredentials", "keyCredentials", "web", "spa",
+			"publicClient", "api",
 		},
 		OrderBy:      "displayName",
 		SearchFields: []string{"displayName", "description"},
 		Accent:       "#e0af68",
+		State: func(i Item) RowState {
+			if SoonestCredentialExpiry(i) == "expired" {
+				return RowWarn
+			}
+			return RowNormal
+		},
 		Columns: []Column{
 			{Title: "NAME", MinWidth: 16, Weight: 4, Value: func(i Item) string { return i.String("displayName") }},
 			{Title: "APP ID", MinWidth: 36, Value: func(i Item) string { return i.String("appId") }},
-			{Title: "AUDIENCE", MinWidth: 12, Weight: 1, Value: SignInAudience},
-			{Title: "SECRETS", MinWidth: 7, Value: func(i Item) string { return credentialCount(i, "passwordCredentials") }},
-			{Title: "CERTS", MinWidth: 5, Value: func(i Item) string { return credentialCount(i, "keyCredentials") }},
+			{Title: "REDIRECTS", MinWidth: 9, Value: RedirectCount},
+			{Title: "SECRETS", MinWidth: 7, Value: CredentialCount},
 			{Title: "CRED EXP", MinWidth: 8, Value: SoonestCredentialExpiry},
 			{Title: "AGE", MinWidth: 6, Value: func(i Item) string { return AgeOf(i, "createdDateTime") }},
 		},
@@ -275,16 +312,21 @@ func enterpriseAppsResource() Resource {
 		// tenant, and an unsearchable field fails the whole query.
 		SearchFields: []string{"displayName"},
 		Accent:       "#bb9af7",
+		State: func(i Item) RowState {
+			if enabled, ok := i.Bool("accountEnabled"); ok && !enabled {
+				return RowMuted
+			}
+			return RowNormal
+		},
 		Columns: []Column{
 			{Title: "NAME", MinWidth: 16, Weight: 4, Value: func(i Item) string { return i.String("displayName") }},
 			{Title: "APP ID", MinWidth: 36, Value: func(i Item) string { return i.String("appId") }},
 			{Title: "TYPE", MinWidth: 12, Weight: 1, Value: func(i Item) string { return i.String("servicePrincipalType") }},
-			{Title: "ENABLED", MinWidth: 7, Value: func(i Item) string { return YesNo(i, "accountEnabled") }},
+			{Title: "SIGN-IN", MinWidth: 8, Value: func(i Item) string { return YesNo(i, "accountEnabled") }},
 			{Title: "ASSIGN REQ", MinWidth: 10, Value: func(i Item) string { return YesNo(i, "appRoleAssignmentRequired") }},
 			{Title: "SSO", MinWidth: 10, Weight: 1, Value: func(i Item) string {
 				return firstNonEmpty(i.String("preferredSingleSignOnMode"), "-")
 			}},
-			{Title: "PUBLISHER", MinWidth: 12, Weight: 2, Value: func(i Item) string { return i.String("publisherName") }},
 		},
 	}
 }
@@ -306,6 +348,40 @@ func SignInAudience(i Item) string {
 	default:
 		return i.String("signInAudience")
 	}
+}
+
+// RedirectCount totals the redirect URIs across the three platform objects
+// Graph splits them over, so the table can show at a glance how exposed an
+// app registration is.
+func RedirectCount(i Item) string {
+	total := 0
+	for _, platform := range []string{"web", "spa", "publicClient"} {
+		m, ok := i[platform].(map[string]any)
+		if !ok {
+			continue
+		}
+		if uris, ok := m["redirectUris"].([]any); ok {
+			total += len(uris)
+		}
+	}
+	return fmt.Sprint(total)
+}
+
+// CredentialCount totals secrets and certificates together: both are ways in,
+// and the table cares how many exist rather than which kind they are.
+func CredentialCount(i Item) string {
+	total := 0
+	present := false
+	for _, key := range []string{"passwordCredentials", "keyCredentials"} {
+		if raw, ok := i[key].([]any); ok {
+			total += len(raw)
+			present = true
+		}
+	}
+	if !present {
+		return "-"
+	}
+	return fmt.Sprint(total)
 }
 
 // credentialCount counts entries in a credential collection.

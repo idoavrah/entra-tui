@@ -11,13 +11,13 @@ import (
 )
 
 // groupDetail opens a group's detail pane with two members and one owner.
-func groupDetail(t *testing.T, write bool) Model {
+func groupDetail(t *testing.T, _ bool) Model {
 	t.Helper()
 	res, _ := graph.Lookup("users")
 	m := New(t.Context(), Options{
 		Auth:     auth.Options{TenantID: "organizations"},
 		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res,
-		CacheDir: t.TempDir(), Write: write,
+		CacheDir: t.TempDir(),
 	})
 	m = send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
 	m = send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
@@ -41,69 +41,94 @@ func groupDetail(t *testing.T, write bool) Model {
 	}})
 }
 
-func TestArrowsSelectMembersAndOwners(t *testing.T) {
+func TestListsBecomeTabsBelowTheProperties(t *testing.T) {
 	m := groupDetail(t, true)
 
-	if len(m.detailEntries) != 3 {
-		t.Fatalf("got %d selectable entries, want 3 (one owner, two members)", len(m.detailEntries))
+	// The object's own fields stay above; its collections become tabs.
+	for _, s := range m.propertySections() {
+		if s.List {
+			t.Errorf("section %q is a list but was kept with the properties", s.Title)
+		}
 	}
-	first, _ := m.selectedEntry()
-	if first.id != "u9" {
-		t.Errorf("first selection = %q, want the owner listed first", first.id)
+	titles := map[string]bool{}
+	for _, s := range m.listSections() {
+		titles[s.Title] = true
+	}
+	for _, want := range []string{"Owners", "Members"} {
+		if !titles[want] {
+			t.Errorf("%q is not one of the tabs", want)
+		}
 	}
 
-	m = send(t, m, press("down"))
-	second, _ := m.selectedEntry()
-	if second.rel != graph.RelMembers || second.id != "u1" {
-		t.Errorf("second selection = %+v, want the first member", second)
-	}
-
-	// The cursor stops at the ends rather than wrapping.
-	for range 10 {
-		m = send(t, m, press("down"))
-	}
-	if m.detailCursor != 2 {
-		t.Errorf("cursor = %d, want it clamped at the last entry", m.detailCursor)
-	}
-	for range 10 {
-		m = send(t, m, press("up"))
-	}
-	if m.detailCursor != 0 {
-		t.Errorf("cursor = %d, want it clamped at the first entry", m.detailCursor)
+	view := m.View()
+	if !strings.Contains(view, "Members (2)") {
+		t.Error("the tab strip does not show the list and its size")
 	}
 }
 
-func TestPagesScrollThePaneWithoutMovingTheSelection(t *testing.T) {
+func TestArrowsWalkTheActiveTab(t *testing.T) {
 	m := groupDetail(t, true)
-	m.detailVP.Height = 3 // force a scrollable pane
 
-	before := m.detailCursor
-	m = send(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
-	if m.detailCursor != before {
-		t.Error("paging moved the selection; it should only scroll")
+	first, ok := m.selectedEntry()
+	if !ok || first.id != "u9" {
+		t.Fatalf("first selection = %+v ok=%v, want the first owner", first, ok)
 	}
-	if m.detailVP.YOffset == 0 {
-		t.Error("page down did not scroll the pane")
+
+	// Owners has one entry, so the cursor stops rather than wrapping.
+	for range 5 {
+		m = send(t, m, press("down"))
+	}
+	if m.tabCursor != 0 {
+		t.Errorf("cursor = %d, want it clamped to the single owner", m.tabCursor)
+	}
+}
+
+func TestLeftRightSwitchTabs(t *testing.T) {
+	m := groupDetail(t, true)
+	lists := m.listSections()
+	if len(lists) < 2 {
+		t.Fatalf("only %d tabs, want at least two to switch between", len(lists))
+	}
+
+	m = send(t, m, press("right"))
+	if m.detailTab != 1 {
+		t.Fatalf("tab = %d, want the second", m.detailTab)
+	}
+	entry, ok := m.selectedEntry()
+	if !ok || entry.rel != graph.RelMembers {
+		t.Errorf("selection = %+v, want a member from the second tab", entry)
+	}
+
+	// Switching starts the new list at the top.
+	m = send(t, m, press("down"))
+	m = send(t, m, press("left"))
+	if m.tabCursor != 0 {
+		t.Errorf("cursor = %d, want a fresh tab to start at the top", m.tabCursor)
+	}
+	if m.detailTab != 0 {
+		t.Errorf("tab = %d, want the first", m.detailTab)
+	}
+
+	// And stops at the ends.
+	for range 10 {
+		m = send(t, m, press("left"))
+	}
+	if m.detailTab != 0 {
+		t.Errorf("tab = %d, want it clamped at the first", m.detailTab)
+	}
+}
+
+func TestPagesScrollThePropertiesNotTheList(t *testing.T) {
+	m := groupDetail(t, true)
+	before := m.tabCursor
+
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.tabCursor != before {
+		t.Error("paging moved the list selection; pages belong to the properties")
 	}
 	m = send(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
 	if m.detailVP.YOffset != 0 {
 		t.Errorf("YOffset = %d, want page up to return to the top", m.detailVP.YOffset)
-	}
-}
-
-func TestChangeKeysAreInertWithoutTheWriteFlag(t *testing.T) {
-	// The default build reads only; the keys explain themselves rather than
-	// silently doing nothing.
-	m := groupDetail(t, false)
-
-	for _, k := range []string{"a", "o", "d"} {
-		got := send(t, m, press(k))
-		if got.modal != modalNone {
-			t.Errorf("%q opened a dialog with writes disabled", k)
-		}
-		if !strings.Contains(got.flash, "-write") {
-			t.Errorf("%q flash = %q, want it to name the flag", k, got.flash)
-		}
 	}
 }
 
@@ -184,7 +209,7 @@ func TestConfirmationDefaultsToNo(t *testing.T) {
 
 func TestRemoveNamesTheSelectedEntry(t *testing.T) {
 	m := groupDetail(t, true)
-	m = send(t, m, press("down")) // first member
+	m = send(t, m, press("right")) // members tab
 	m = send(t, m, press("d"))
 
 	view := m.View()
@@ -207,11 +232,11 @@ func TestWriteFailureStaysInTheDialog(t *testing.T) {
 	if m.modal != modalConfirm {
 		t.Error("a failed write closed the dialog, hiding what went wrong")
 	}
-	if !strings.Contains(m.modalError, "Insufficient privileges") {
-		t.Errorf("modalError = %q, want the Graph message", m.modalError)
+	if !strings.Contains(m.modalError, "no permission") {
+		t.Errorf("modalError = %q, want a succinct refusal", m.modalError)
 	}
-	if !strings.Contains(m.modalError, "consent") {
-		t.Error("the dialog does not offer the remedy for a 403")
+	if len(m.modalError) > 80 {
+		t.Errorf("modalError = %q, want a short refusal rather than an essay", m.modalError)
 	}
 }
 

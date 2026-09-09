@@ -198,8 +198,14 @@ func TestDoesNotRetryForbidden(t *testing.T) {
 	if api.Code != "Authorization_RequestDenied" {
 		t.Errorf("code = %q, want Authorization_RequestDenied", api.Code)
 	}
-	if api.Hint() == "" {
-		t.Error("Hint() is empty; a 403 should explain the consent problem")
+	// A permission failure says three words and stops. Graph's own message
+	// is boilerplate that repeats the status code, and an essay about
+	// consent models is not what someone wants mid-task.
+	if got := api.Error(); got != "no permission" {
+		t.Errorf("Error() = %q, want a succinct refusal", got)
+	}
+	if api.Hint() != "" {
+		t.Errorf("Hint() = %q, want nothing added to it", api.Hint())
 	}
 	if got := calls.Load(); got != 1 {
 		t.Errorf("server saw %d calls, want exactly 1 (no retry on 403)", got)

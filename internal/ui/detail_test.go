@@ -11,10 +11,9 @@ import (
 // hebrewOwner is a Hebrew personal name used to check right-to-left handling.
 const hebrewOwner = "שרה כהן"
 
-// mustBody renders the detail pane, discarding the entry map.
+// mustBody renders the detail pane's property region.
 func mustBody(m Model) string {
-	body, _ := m.buildDetailBody()
-	return body
+	return strings.Join(m.propertyLines(), "\n")
 }
 
 func reverseRunes(s string) string {
@@ -219,6 +218,8 @@ func TestDetailBodySpreadsToTwoColumnsWhenWide(t *testing.T) {
 		Object: graph.Item{
 			"id": "a", "displayName": "Contoso", "appId": "guid",
 			"signInAudience": "AzureADMyOrg", "publisherDomain": "contoso.com",
+			// A second property section, so there is something to balance.
+			"web": map[string]any{"redirectUris": []any{"https://a/cb"}, "homePageUrl": "https://a"},
 		},
 	}
 	m.detailSections = graph.Sections(m.detail)
@@ -239,21 +240,28 @@ func TestDetailBodySpreadsToTwoColumnsWhenWide(t *testing.T) {
 	}
 }
 
-func TestDetailBodyRendersSectionHeadingsAndNotes(t *testing.T) {
+func TestPropertiesRenderHeadingsAndListsExplainEmptiness(t *testing.T) {
 	m := browsing(t)
 	m.detail = graph.Detail{
 		Kind:   graph.KindEnterpriseApps,
 		Object: graph.Item{"id": "sp1", "displayName": "Contoso"},
 	}
 	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
 
-	body := mustBody(m)
-	if !strings.Contains(body, "ESSENTIALS") {
-		t.Error("detail body has no Essentials heading")
+	if body := mustBody(m); !strings.Contains(body, "ESSENTIALS") {
+		t.Error("the property region has no Essentials heading")
 	}
-	if !strings.Contains(body, "No users or groups are assigned") {
-		t.Error("an empty section should explain itself rather than render blank")
+
+	// An empty list explains itself in its own tab rather than rendering
+	// blank, and no longer crowds the properties above.
+	for i := range m.listSections() {
+		m.detailTab = i
+		if strings.Contains(strings.Join(m.renderTabRows(10), "\n"), "No users or groups are assigned") {
+			return
+		}
 	}
+	t.Error("no tab explains that nothing is assigned")
 }
 
 func TestPairHintNamesTheTarget(t *testing.T) {
@@ -272,5 +280,81 @@ func TestPairHintNamesTheTarget(t *testing.T) {
 	m.detailLoading = false
 	if got := m.pairHint(); !strings.Contains(got, "find") {
 		t.Errorf("pairHint = %q, want it to offer a lookup", got)
+	}
+}
+
+func TestTabBarShowsEveryListWithItsSize(t *testing.T) {
+	// The bar is styled, so it must be built to fit rather than truncated
+	// afterwards: cutting a styled string severs an escape sequence, which
+	// once cost the bar a whole tab and left a stray border character.
+	m := browsing(t)
+	m.detail = graph.Detail{
+		Kind:   graph.KindGroups,
+		Object: graph.Item{"id": "g1", "displayName": "Research", "securityEnabled": true},
+		Owners: []graph.Item{{"id": "u9", "displayName": "Owner"}},
+		Members: []graph.Item{
+			{"id": "u1", "displayName": "Ada"}, {"id": "u2", "displayName": "Grace"},
+		},
+	}
+	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
+
+	bar := m.renderTabBar()
+	for _, want := range []string{"Owners (1)", "Members (2)"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("tab bar %q is missing %q", bar, want)
+		}
+	}
+	if w := lipgloss.Width(bar); w > boxInnerWidth(m.width) {
+		t.Errorf("tab bar is %d cells, over the %d-cell pane", w, boxInnerWidth(m.width))
+	}
+}
+
+func TestTabBarFitsANarrowPane(t *testing.T) {
+	m := browsing(t)
+	m.detail = graph.Detail{
+		Kind:    graph.KindGroups,
+		Object:  graph.Item{"id": "g1", "displayName": "Research"},
+		Owners:  []graph.Item{{"id": "u9", "displayName": "Owner"}},
+		Members: []graph.Item{{"id": "u1", "displayName": "Ada"}},
+	}
+	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
+
+	for _, width := range []int{20, 30, 40, 200} {
+		m.width = width
+		if w := lipgloss.Width(m.renderTabBar()); w > boxInnerWidth(width) {
+			t.Errorf("at width %d the bar is %d cells, over the %d-cell pane",
+				width, w, boxInnerWidth(width))
+		}
+	}
+}
+
+func TestListsDoNotCrowdOutTheProperties(t *testing.T) {
+	// A group with hundreds of members must not push the object's own
+	// fields off the top of the pane.
+	m := browsing(t)
+	members := make([]graph.Item, 300)
+	for i := range members {
+		members[i] = graph.Item{"id": "u" + itoa(i), "displayName": "Member " + itoa(i)}
+	}
+	m.detail = graph.Detail{
+		Kind:    graph.KindGroups,
+		Object:  graph.Item{"id": "g1", "displayName": "Everyone", "securityEnabled": true},
+		Members: members,
+	}
+	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
+
+	body := strings.Join(m.detailBody(), "\n")
+	if !strings.Contains(body, "ESSENTIALS") {
+		t.Error("the properties were pushed off the pane by the member list")
+	}
+	if !strings.Contains(body, "Members (300)") {
+		t.Error("the tab bar does not report the list size")
+	}
+	if len(m.detailBody()) > m.contentHeight() {
+		t.Errorf("the pane is %d lines, over the %d-line content area",
+			len(m.detailBody()), m.contentHeight())
 	}
 }

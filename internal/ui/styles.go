@@ -36,6 +36,11 @@ var (
 
 	styleRow = lipgloss.NewStyle().Foreground(colBase)
 
+	// Whole-row tints. Reading one flag out of a column of fifty is what a
+	// colour is for, so the state colours the line rather than the cell.
+	styleRowMuted = lipgloss.NewStyle().Foreground(colDim)
+	styleRowWarn  = lipgloss.NewStyle().Foreground(colWarn)
+
 	styleRowSelected = lipgloss.NewStyle().
 				Foreground(colBase).
 				Background(colSelBg).
@@ -62,6 +67,10 @@ var (
 
 	// styleBorder draws the frame around the content area.
 	styleBorder = lipgloss.NewStyle().Foreground(colDim)
+
+	// Tab strip below the properties in a detail pane.
+	styleTabActive = lipgloss.NewStyle().Foreground(colHeadFg).Bold(true).Underline(true)
+	styleTabIdle   = lipgloss.NewStyle().Foreground(colDim)
 )
 
 // accentStyle tints text with a resource's own accent colour, matching the way

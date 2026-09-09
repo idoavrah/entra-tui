@@ -20,7 +20,7 @@ Status   connected                   [4]                 [9]
 │ןהכ הרש              sara.cohen@contoso.com           Member yes     Security      │
 └──────────────────────── more below — scroll to load ──────────────────────────────┘
 
-enter describe · / search · 1-0 recent · : view · r refresh · c copy id · esc dashboard
+pgup/pgdn properties · ←/→ tab · ↑/↓ list · a add member · o add owner · d remove · esc back
 ```
 
 
@@ -106,10 +106,13 @@ entra-tui requests the least-privilege delegated scopes that cover its views:
 | Scope | Covers |
 | --- | --- |
 | `User.Read.All` | Users |
-| `Group.Read.All` | Groups |
-| `GroupMember.Read.All` | A user's groups, a group's members |
-| `Application.Read.All` | App registrations, enterprise apps, owners, role assignments |
 | `Device.Read.All` | Devices |
+| `Group.ReadWrite.All` | Groups and their owners |
+| `GroupMember.ReadWrite.All` | A user's groups, a group's members |
+| `Application.ReadWrite.All` | App registrations, enterprise apps, owners, role assignments |
+
+A `ReadWrite` scope covers its `Read` counterpart, so asking for both would
+only lengthen the consent prompt.
 
 It deliberately does **not** ask for `Directory.Read.All`, which would grant
 far more than these views need.
@@ -120,21 +123,8 @@ directory without it. A `403` in the status bar means exactly this, and says
 so. Individual sections degrade on their own: if you cannot read owners, the
 Owners section explains that instead of the whole view failing.
 
-### Changing things
-
-By default entra-tui issues **GET requests only** and cannot alter your
-directory. Start it with `-write` (or `ENTRA_TUI_WRITE=1`) to enable adding
-and removing members and owners from the detail panes. That also requests four
-more delegated scopes:
-
-`GroupMember.ReadWrite.All` · `Group.ReadWrite.All` ·
-`Application.ReadWrite.All` · `Device.ReadWrite.All`
-
-They are off by default on purpose. These are admin-consent permissions that
-let the holder change who can access what, and quietly widening every existing
-user's consent from "read the directory" to "change the directory" is not a
-decision to make on their behalf — a tenant that refuses them would break the
-read-only views too.
+entra-tui reads the directory and can **add and remove members and owners**.
+It creates, deletes and renames nothing.
 
 Override the scopes for an even narrower token:
 
@@ -162,8 +152,15 @@ Some columns are computed rather than copied straight out of Graph:
 
 - **Groups → TYPE** collapses `groupTypes` / `mailEnabled` / `securityEnabled`
   into the label the Entra portal shows.
+- **App registrations → REDIRECTS** totals the redirect URIs across the three
+  platform objects Graph splits them over, and **SECRETS** counts client
+  secrets and certificates together — both are ways in.
 - **App registrations → CRED EXP** shows when the next secret or certificate
   lapses — or `expired`.
+
+Rows are tinted as a whole rather than per cell: a disabled user or service
+principal is dimmed, a non-compliant device or an app with a lapsed credential
+is warned. Reading one flag out of a column of fifty is what a colour is for.
 
 ## Layout
 
@@ -202,7 +199,9 @@ Slots are cached under your user cache directory (`~/.cache/entra-tui/` on
 Linux, `~/Library/Caches/entra-tui/` on macOS) so they survive a restart. The
 file is owner-readable only, since search terms can name people.
 
-`esc` clears the search; a second `esc` returns to the dashboard.
+`esc` leaves the view for the dashboard — it does not unpick the search on the
+way out, which cost a second press and a wasted round trip. Run an empty
+search to clear one.
 
 ## Detail view
 
@@ -245,11 +244,15 @@ Anything Graph returned that no section claims still appears under *Other
 properties* — the grouped view never hides data the raw view would show.
 `R` toggles raw JSON.
 
-**Arrows select** the members and owners listed in the pane; `pgup`/`pgdn`
-scroll it. A long object is read by paging and its people are picked by
-arrowing.
+The pane is split. The object's **own fields stay at the top**; everything
+that enumerates *other* objects — members, owners, groups, roles, API
+permissions, credentials — becomes a **tab strip below**. An unbounded member
+list has no business pushing an object's own fields off the screen.
 
-### Adding and removing people (with `-write`)
+`←`/`→` switch tabs, `↑`/`↓` walk the active list, `pgup`/`pgdn` scroll the
+properties above.
+
+### Adding and removing people
 
 `a` adds a member, `o` adds an owner — both in two steps. You type a name,
 sign-in name or email; entra-tui searches the directory and **only proceeds
@@ -302,15 +305,16 @@ implemented. **The underlying data is never modified** — only what is drawn.
 | `1`–`9`, `0` | Replay a search slot (in a view); open a view (on the dashboard) |
 | `←` `→` | Move between dashboard tiles |
 | `:` | Command prompt (`:users`, `:groups`, `:appregs`, `:entapps`, `:dash`, `:q`) |
-| `esc` | Back one layer: search → view → dashboard |
+| `esc` | Leave the view for the dashboard |
 | `~` | Dashboard, from anywhere |
 | `x` | App registration ⇄ enterprise app |
 | `R` | Raw JSON (detail view) |
 | `r` | Refresh from Graph |
 | `c` (or `y`) | Copy object id (OSC 52, works over SSH) |
-| `a` / `o` | Add a member / an owner (needs `-write`) |
-| `d` | Remove the selected member or owner (needs `-write`) |
-| `pgup` / `pgdn` | Scroll the detail pane |
+| `a` / `o` | Add a member / an owner |
+| `d` | Remove the selected member or owner |
+| `←` / `→` | Switch detail tabs; move between dashboard tiles |
+| `pgup` / `pgdn` | Scroll the detail properties |
 | `?` | Help |
 | `q` | Quit |
 
@@ -347,7 +351,6 @@ Every flag has an environment variable; flags win.
 | `-page-size` | `ENTRA_TUI_PAGE_SIZE` | `100` |
 | `-graph-url` | `ENTRA_TUI_GRAPH_URL` | `https://graph.microsoft.com/v1.0` |
 | `-view` | — | `users` (preselects a dashboard tile) |
-| `-write` | `ENTRA_TUI_WRITE` | off — reads only |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).
 

@@ -11,7 +11,7 @@ import (
 // Detail pane layout.
 const (
 	// twoColumnMinWidth is the narrowest frame that fits two readable
-	// columns of sections. Below it everything stacks in one.
+	// columns of property sections. Below it everything stacks in one.
 	twoColumnMinWidth = 132
 	// detailColumnGap separates the two section columns.
 	detailColumnGap = 4
@@ -23,7 +23,107 @@ const (
 	detailIndent = 2
 	// detailGutter separates a label from its value.
 	detailGutter = 2
+
+	// tabBarHeight is the strip naming the lists.
+	tabBarHeight = 1
+	// tabMinRows is the smallest list worth showing; below this the tabs are
+	// not given any height at all.
+	tabMinRows = 3
+	// tabNameGutter separates a list entry's name from its detail.
+	tabNameGutter = 2
 )
+
+// detailEntry is one selectable object in a list tab -- a member or an owner.
+type detailEntry struct {
+	rel  graph.Relationship
+	id   string
+	name string
+	// detail is the entry's secondary text -- the sign-in name or object
+	// kind -- carried so a confirmation can identify it without guessing.
+	detail string
+}
+
+// propertySections are the sections describing the object itself.
+func (m Model) propertySections() []graph.Section {
+	var out []graph.Section
+	for _, s := range m.detailSections {
+		if !s.List {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// listSections are the sections enumerating other objects, shown as tabs.
+func (m Model) listSections() []graph.Section {
+	var out []graph.Section
+	for _, s := range m.detailSections {
+		if s.List {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// activeSection is the list tab in front.
+func (m Model) activeSection() (graph.Section, bool) {
+	lists := m.listSections()
+	if len(lists) == 0 {
+		return graph.Section{}, false
+	}
+	return lists[clamp(m.detailTab, 0, len(lists)-1)], true
+}
+
+// selectedEntry is the object under the cursor in the active tab, when that
+// tab lists something that can be added to or removed.
+func (m Model) selectedEntry() (detailEntry, bool) {
+	section, ok := m.activeSection()
+	if !ok || section.Relationship == "" {
+		return detailEntry{}, false
+	}
+	if m.tabCursor < 0 || m.tabCursor >= len(section.Fields) {
+		return detailEntry{}, false
+	}
+	f := section.Fields[m.tabCursor]
+	if f.ID == "" {
+		return detailEntry{}, false
+	}
+	return detailEntry{
+		rel: section.Relationship, id: f.ID, name: f.Label, detail: f.Value,
+	}, true
+}
+
+// detailHasRelationship reports whether the open object has an editable
+// collection of the given kind.
+func (m Model) detailHasRelationship(rel graph.Relationship) bool {
+	for _, s := range m.detailSections {
+		if s.Relationship == rel {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------- geometry
+
+// propertyHeight is how many rows the property region gets.
+//
+// The lists get whatever the properties do not need, down to a floor: an
+// object with two fields should not reserve half the pane for them, and one
+// with thirty should not squeeze the lists out entirely.
+func (m Model) propertyHeight(total int) int {
+	if len(m.listSections()) == 0 {
+		return total
+	}
+	natural := len(m.propertyLines())
+	room := total - tabBarHeight - tabMinRows
+	if room < 1 {
+		return max(1, total)
+	}
+	return clamp(natural, 1, min(room, max(1, total/2)))
+}
+
+// ---------------------------------------------------------------- rendering
 
 // renderDetail draws the whole detail screen.
 func (m Model) renderDetail() string {
@@ -40,35 +140,165 @@ func (m Model) renderDetail() string {
 		styleDim.Render(" · ") + styleContextVal.Render(bidi.Display(name)) +
 		styleDim.Render(" · "+mode)
 
-	// The footer carries only what this screen does; the keys that work
-	// everywhere live in the header.
-	hintPairs := [][2]string{{"↑/↓", "select"}, {"pgup/pgdn", "scroll"}, {"R", "raw json"}}
-	if m.detail.Kind == graph.KindAppRegistrations || m.detail.Kind == graph.KindEnterpriseApps {
-		hintPairs = append(hintPairs, [2]string{"x", m.pairHint()})
-	}
-	if m.opts.Write {
-		if m.detailHasRelationship(graph.RelMembers) {
-			hintPairs = append(hintPairs, [2]string{"a", "add member"})
-		}
-		if m.detailHasRelationship(m.ownerRelationship()) {
-			hintPairs = append(hintPairs, [2]string{"o", "add owner"})
-		}
-		if len(m.detailEntries) > 0 {
-			hintPairs = append(hintPairs, [2]string{"d", "remove selected"})
-		}
-	}
-	hintPairs = append(hintPairs, [2]string{"c", "copy id"}, [2]string{"esc", "back"})
-
-	body := strings.Split(m.detailVP.View(), "\n")
-	footer := m.detailFooterCaption()
 	if m.modal != modalNone {
-		body = m.renderModal(m.contentHeight())
-		footer = ""
+		return m.chrome(caption, "", m.renderModal(m.contentHeight()), m.detailHints())
 	}
-	return m.chrome(caption, footer, body, hintBar(m.width, hintPairs...))
+	return m.chrome(caption, m.detailFooterCaption(), m.detailBody(), m.detailHints())
 }
 
-// detailFooterCaption shows scroll position when the object does not fit.
+// detailBody assembles the property region, the tab strip and the active
+// list into one pane-height block.
+func (m Model) detailBody() []string {
+	height := m.contentHeight()
+	// The viewport is sized here rather than in Update because how much room
+	// the properties get depends on whether this object has any lists.
+	vp := m.detailVP
+	if m.detailRaw {
+		vp.Height = height
+		return strings.Split(vp.View(), "\n")
+	}
+
+	propHeight := m.propertyHeight(height)
+	vp.Height = propHeight
+	body := strings.Split(vp.View(), "\n")
+
+	lists := m.listSections()
+	if len(lists) == 0 {
+		return body
+	}
+
+	body = append(body, m.renderTabBar())
+	return append(body, m.renderTabRows(max(0, height-propHeight-tabBarHeight))...)
+}
+
+// renderTabBar names each list and how much is in it.
+//
+// Width is tracked on the plain labels as the bar is built, never by
+// truncating the finished string: the tabs are styled, and cutting a styled
+// string by rune index severs an escape sequence -- which is exactly how the
+// bar lost a tab and gained a stray border character.
+func (m Model) renderTabBar() string {
+	lists := m.listSections()
+	if len(lists) == 0 {
+		return ""
+	}
+	active := clamp(m.detailTab, 0, len(lists)-1)
+
+	const separator = "│"
+	budget := boxInnerWidth(m.width)
+
+	var bar strings.Builder
+	used := 0
+	for i, s := range lists {
+		label := " " + s.Title
+		if n := len(s.Fields); n > 0 {
+			label += " (" + itoa(n) + ")"
+		}
+		label += " "
+
+		cost := len([]rune(label))
+		if i > 0 {
+			cost++ // the separator
+		}
+		if used+cost > budget {
+			break
+		}
+		if i > 0 {
+			bar.WriteString(styleDim.Render(separator))
+		}
+		if i == active {
+			bar.WriteString(styleTabActive.Render(label))
+		} else {
+			bar.WriteString(styleTabIdle.Render(label))
+		}
+		used += cost
+	}
+
+	if hint := "  ←/→"; len(lists) > 1 && used+len(hint) <= budget {
+		bar.WriteString(styleDim.Render(hint))
+	}
+	return bar.String()
+}
+
+// renderTabRows draws the active list, scrolled to keep the cursor in view.
+func (m Model) renderTabRows(height int) []string {
+	section, ok := m.activeSection()
+	if !ok || height <= 0 {
+		return nil
+	}
+
+	if len(section.Fields) == 0 {
+		note := section.Note
+		if note == "" {
+			note = "Nothing here."
+		}
+		return []string{spaces(detailIndent) + styleDim.Render(graph.Truncate(note, boxInnerWidth(m.width)-2))}
+	}
+
+	inner := boxInnerWidth(m.width)
+	nameWidth := 0
+	for _, f := range section.Fields {
+		nameWidth = max(nameWidth, lipgloss.Width(f.Label))
+	}
+	nameWidth = clamp(nameWidth, detailLabelMin, min(detailLabelMax+8, inner/2))
+	detailWidth := max(10, inner-detailIndent-nameWidth-tabNameGutter)
+
+	offset := clamp(m.tabOffset, 0, max(0, len(section.Fields)-1))
+	rows := make([]string, 0, height)
+	for i := offset; i < len(section.Fields) && len(rows) < height; i++ {
+		f := section.Fields[i]
+
+		name := bidi.Display(graph.Truncate(f.Label, nameWidth))
+		value := f.Value
+		if len(f.Values) > 0 {
+			value = strings.Join(f.Values, "; ")
+		}
+		line := spaces(detailIndent) + name +
+			spaces(nameWidth-lipgloss.Width(name)+tabNameGutter) +
+			bidi.Display(graph.Truncate(value, detailWidth))
+
+		style := styleRow
+		if f.Warn {
+			style = styleRowWarn
+		}
+		if i == m.tabCursor && section.Relationship != "" {
+			line = padRight(line, inner)
+			style = styleRowSelected
+		}
+		rows = append(rows, style.Render(line))
+	}
+	return rows
+}
+
+// detailHints are the keys this screen offers; the general ones live in the
+// header.
+func (m Model) detailHints() string {
+	pairs := [][2]string{{"pgup/pgdn", "properties"}}
+	if len(m.listSections()) > 1 {
+		pairs = append(pairs, [2]string{"←/→", "tab"})
+	}
+	if _, ok := m.activeSection(); ok {
+		pairs = append(pairs, [2]string{"↑/↓", "list"})
+	}
+	pairs = append(pairs, [2]string{"R", "raw json"})
+
+	if m.detail.Kind == graph.KindAppRegistrations || m.detail.Kind == graph.KindEnterpriseApps {
+		pairs = append(pairs, [2]string{"x", m.pairHint()})
+	}
+	if m.detailHasRelationship(graph.RelMembers) {
+		pairs = append(pairs, [2]string{"a", "add member"})
+	}
+	if m.detailHasRelationship(m.ownerRelationship()) {
+		pairs = append(pairs, [2]string{"o", "add owner"})
+	}
+	if _, ok := m.selectedEntry(); ok {
+		pairs = append(pairs, [2]string{"d", "remove"})
+	}
+	pairs = append(pairs, [2]string{"c", "copy id"}, [2]string{"esc", "back"})
+	return hintBar(m.width, pairs...)
+}
+
+// detailFooterCaption shows scroll position when the properties do not fit.
 func (m Model) detailFooterCaption() string {
 	if m.detailVP.AtTop() && m.detailVP.AtBottom() {
 		return ""
@@ -91,28 +321,18 @@ func (m Model) pairHint() string {
 	return "app registration"
 }
 
-// detailEntry is one selectable object in the detail pane -- a member or an
-// owner -- along with the line it was rendered on, so the viewport can be
-// scrolled to keep the selection in sight.
-type detailEntry struct {
-	rel  graph.Relationship
-	id   string
-	name string
-	// detail is the entry's secondary text -- the sign-in name or object
-	// kind -- carried so a confirmation can identify it without guessing.
-	detail string
-	line   int
-}
+// ------------------------------------------------------- property sections
 
-// buildDetailBody formats the object for the viewport and reports the
-// selectable entries it drew, spreading sections across two columns when the
+// propertyLines renders the object's own fields, in two columns when the
 // frame is wide enough to hold them.
-func (m Model) buildDetailBody() (string, []detailEntry) {
+func (m Model) propertyLines() []string {
 	if m.detail.Object == nil {
-		return styleDim.Render("nothing selected"), nil
+		return []string{styleDim.Render("nothing selected")}
 	}
-	if m.detailRaw {
-		return m.detail.Object.JSON(), nil
+
+	sections := m.propertySections()
+	if len(sections) == 0 {
+		return nil
 	}
 
 	inner := boxInnerWidth(m.width)
@@ -121,60 +341,34 @@ func (m Model) buildDetailBody() (string, []detailEntry) {
 		columns = 2
 	}
 	columnWidth := (inner - (columns-1)*detailColumnGap) / columns
-	labelWidth := detailLabelWidth(m.detailSections, columnWidth)
+	labelWidth := detailLabelWidth(sections, columnWidth)
 
-	blocks := make([][]string, 0, len(m.detailSections))
-	blockEntries := make([][]detailEntry, 0, len(m.detailSections))
-	for _, section := range m.detailSections {
-		lines, entries := renderSection(section, labelWidth, columnWidth,
-			countEntries(blockEntries), m.detailCursor)
-		blocks = append(blocks, lines)
-		blockEntries = append(blockEntries, entries)
+	blocks := make([][]string, 0, len(sections))
+	for _, section := range sections {
+		blocks = append(blocks, renderSection(section, labelWidth, columnWidth))
 	}
 
-	var out string
-	var entries []detailEntry
+	var out []string
 	if columns == 1 {
-		out = strings.Join(flatten(blocks), "\n")
-		entries = offsetEntries(blockEntries, blocks, 0, len(blocks))
+		out = flatten(blocks)
 	} else {
-		split := balancedSplit(blocks)
-		out = twoColumnLayout(blocks, columnWidth)
-		// Both columns are drawn side by side, so each starts its own line
-		// numbering from the top of the pane.
-		entries = append(offsetEntries(blockEntries, blocks, 0, split),
-			offsetEntries(blockEntries, blocks, split, len(blocks))...)
+		out = strings.Split(twoColumnLayout(blocks, columnWidth), "\n")
 	}
-
 	if m.detailLoading {
-		out += "\n" + styleDim.Render(m.spin.View()+" gathering related objects…")
-	}
-	return out, entries
-}
-
-// countEntries totals the entries collected so far, which is the index the
-// next one will take.
-func countEntries(blocks [][]detailEntry) int {
-	n := 0
-	for _, b := range blocks {
-		n += len(b)
-	}
-	return n
-}
-
-// offsetEntries shifts a run of blocks' entry line numbers by where those
-// blocks land in the rendered output.
-func offsetEntries(blockEntries [][]detailEntry, blocks [][]string, from, to int) []detailEntry {
-	var out []detailEntry
-	offset := 0
-	for i := from; i < to && i < len(blocks); i++ {
-		for _, e := range blockEntries[i] {
-			e.line += offset
-			out = append(out, e)
-		}
-		offset += len(blocks[i])
+		out = append(out, styleDim.Render(m.spin.View()+" gathering related objects…"))
 	}
 	return out
+}
+
+// propertyContent is what the property viewport scrolls over.
+func (m Model) propertyContent() string {
+	if m.detailRaw {
+		if m.detail.Object == nil {
+			return ""
+		}
+		return m.detail.Object.JSON()
+	}
+	return strings.Join(m.propertyLines(), "\n")
 }
 
 // detailLabelWidth sizes the label column to the longest label actually
@@ -192,13 +386,8 @@ func detailLabelWidth(sections []graph.Section, columnWidth int) int {
 	return clamp(longest, detailLabelMin, upper)
 }
 
-// renderSection renders one titled group, returning its lines and the
-// selectable entries within it.
-//
-// entryBase is the index the section's first selectable entry takes, and
-// selected is the entry currently under the cursor; a section with no
-// editable relationship contributes neither.
-func renderSection(s graph.Section, labelWidth, columnWidth, entryBase, selected int) ([]string, []detailEntry) {
+// renderSection renders one titled group of properties.
+func renderSection(s graph.Section, labelWidth, columnWidth int) []string {
 	valueWidth := max(10, columnWidth-labelWidth-detailIndent-detailGutter)
 
 	lines := []string{styleSectionTitle.Render("▌ " + strings.ToUpper(s.Title))}
@@ -207,27 +396,10 @@ func renderSection(s graph.Section, labelWidth, columnWidth, entryBase, selected
 			lines = append(lines, spaces(detailIndent)+styleDim.Render(l))
 		}
 	}
-
-	var entries []detailEntry
 	for _, f := range s.Fields {
-		selectable := s.Relationship != "" && f.ID != ""
-		index := entryBase + len(entries)
-
-		rendered := renderFieldLines(f, labelWidth, valueWidth)
-		if selectable && index == selected {
-			for i := range rendered {
-				rendered[i] = styleRowSelected.Render(padRight(rendered[i], columnWidth))
-			}
-		}
-		if selectable {
-			entries = append(entries, detailEntry{
-				rel: s.Relationship, id: f.ID, name: f.Label,
-				detail: f.Value, line: len(lines),
-			})
-		}
-		lines = append(lines, rendered...)
+		lines = append(lines, renderFieldLines(f, labelWidth, valueWidth)...)
 	}
-	return append(lines, ""), entries
+	return append(lines, "")
 }
 
 // renderFieldLines renders one label/value pair. Multi-valued fields list one

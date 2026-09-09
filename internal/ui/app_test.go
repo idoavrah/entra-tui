@@ -448,22 +448,18 @@ func TestDigitWithNoHistoryIsIgnored(t *testing.T) {
 	}
 }
 
-func TestEscapeClearsSearchBeforeLeavingTheView(t *testing.T) {
+func TestEscapeLeavesTheViewWithoutUnpickingTheSearch(t *testing.T) {
+	// Esc leaves. Clearing the search on the way out cost a second press to
+	// get home and a wasted round trip in between.
 	m := loadUsers(t, browsing(t), "Ada")
 	m.coll.search = "ada"
 
 	m = send(t, m, press("esc"))
-	if m.screen != screenBrowse {
-		t.Fatalf("screen = %v, want to stay in the view while a search is set", m.screen)
-	}
-	if m.coll.search != "" {
-		t.Errorf("search = %q, want it cleared", m.coll.search)
-	}
-
-	m.loading = false
-	m = send(t, m, press("esc"))
 	if m.screen != screenDashboard {
-		t.Errorf("screen = %v, want the dashboard on the second esc", m.screen)
+		t.Errorf("screen = %v, want the dashboard on the first esc", m.screen)
+	}
+	if m.loading {
+		t.Error("leaving the view triggered a requery")
 	}
 }
 
@@ -884,11 +880,11 @@ func TestErrorRendersWithItsHint(t *testing.T) {
 	}})
 
 	view := m.View()
-	if !strings.Contains(view, "Insufficient privileges") {
-		t.Error("View does not show the Graph error message")
+	if !strings.Contains(view, "no permission") {
+		t.Error("View does not show the refusal")
 	}
-	if !strings.Contains(view, "consent") {
-		t.Error("View does not show the actionable hint for a 403")
+	if strings.Contains(view, "Insufficient privileges") {
+		t.Error("View repeats Graph's boilerplate instead of a short refusal")
 	}
 }
 

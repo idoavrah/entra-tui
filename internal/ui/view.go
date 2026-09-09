@@ -251,11 +251,10 @@ func (m Model) quickSearchBlock() []string {
 	}
 	kind := string(m.coll.res.Kind)
 
-	// Before anything has been searched, ten empty slots are just noise.
+	// Before anything has been searched there is nothing to show: the key
+	// legend beside it already says how to search.
 	if len(m.history.list(kind)) == 0 {
-		lines := make([]string, quickSearchRows)
-		lines[0] = styleDim.Render("press / to search")
-		return lines
+		return nil
 	}
 
 	slots := m.history.slotsFor(kind)
@@ -393,7 +392,7 @@ func (m Model) renderBrowse() string {
 
 	height := m.tableHeight()
 	for i := m.offset; i < m.coll.len() && len(body) <= height; i++ {
-		_, cells, ok := m.coll.at(i)
+		item, cells, ok := m.coll.at(i)
 		if !ok {
 			break
 		}
@@ -406,7 +405,7 @@ func (m Model) renderBrowse() string {
 			}
 			line = styleRowSelected.Render(line)
 		} else {
-			line = styleRow.Render(line)
+			line = rowStyle(m.coll.res, item).Render(line)
 		}
 		body = append(body, line)
 	}
@@ -422,6 +421,22 @@ func (m Model) renderBrowse() string {
 		[2]string{"?", "help"},
 	)
 	return m.chrome(m.tableCaption(), m.tableFooterCaption(), body, hints)
+}
+
+// rowStyle tints a whole row by the object's state, so a disabled account or
+// a lapsed credential is visible without reading the column that says so.
+func rowStyle(res graph.Resource, item graph.Item) lipgloss.Style {
+	if res.State == nil {
+		return styleRow
+	}
+	switch res.State(item) {
+	case graph.RowMuted:
+		return styleRowMuted
+	case graph.RowWarn:
+		return styleRowWarn
+	default:
+		return styleRow
+	}
 }
 
 // tableCaption is the centred caption on the frame's top edge: what this view

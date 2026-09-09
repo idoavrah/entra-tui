@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -34,9 +35,6 @@ const modalWidth = 66
 // openAddModal starts the two-step add: type a name, then confirm the single
 // match. Nothing is written until the confirmation is answered.
 func (m Model) openAddModal(rel graph.Relationship) (tea.Model, tea.Cmd) {
-	if !m.opts.Write {
-		return m, m.flashFor("changes are disabled — start entra-tui with -write to enable them")
-	}
 	if !m.detailHasRelationship(rel) {
 		return m, m.flashFor(fmt.Sprintf("this object has no %s to add to", rel.Label()+"s"))
 	}
@@ -53,9 +51,6 @@ func (m Model) openAddModal(rel graph.Relationship) (tea.Model, tea.Cmd) {
 // openRemoveModal asks to confirm removing the selected entry. The default
 // answer is no: this is the destructive one.
 func (m Model) openRemoveModal() (tea.Model, tea.Cmd) {
-	if !m.opts.Write {
-		return m, m.flashFor("changes are disabled — start entra-tui with -write to enable them")
-	}
 	entry, ok := m.selectedEntry()
 	if !ok {
 		return m, m.flashFor("select a member or an owner first")
@@ -134,11 +129,12 @@ func (m Model) handlePrincipals(msg principalsMsg) (tea.Model, tea.Cmd) {
 	case msg.err != nil:
 		m.modalError = "Search failed: " + msg.err.Error()
 	case len(msg.items) == 0:
-		m.modalError = fmt.Sprintf("Nothing in the directory matches %q.", msg.term)
+		m.modalError = fmt.Sprintf("Nothing in the directory matches %q.", bidi.Display(msg.term))
 	case len(msg.items) > 1:
 		// Adding the wrong person is not something a guess should risk, so an
 		// ambiguous term is refused rather than resolved by picking the first.
-		m.modalError = fmt.Sprintf("%d objects match %q — be more specific.", len(msg.items), msg.term)
+		m.modalError = fmt.Sprintf("%d objects match %q — be more specific.",
+			len(msg.items), bidi.Display(msg.term))
 	default:
 		m.modal = modalConfirm
 		m.modalAction = actionAdd
@@ -165,7 +161,6 @@ func (m Model) handleWriteDone(msg writeDoneMsg) (tea.Model, tea.Cmd) {
 
 	m = m.closeModal()
 	m.detailLoading = true
-	m.detailCursor = 0
 	return m, tea.Batch(m.flashFor(msg.summary), m.loadDetail(m.coll.res, m.detailID))
 }
 
@@ -234,9 +229,11 @@ func (m Model) confirmLines(width int) []string {
 		object = m.detailID
 	}
 
+	// Names reach the dialog in logical order like everywhere else, so a
+	// Hebrew display name needs the same reordering here as in the table.
 	row := func(label, value string) string {
 		return styleDetailKey.Render(padRight(label, labelWidth)) +
-			styleDetailVal.Render(graph.Truncate(value, valueWidth))
+			styleDetailVal.Render(bidi.Display(graph.Truncate(value, valueWidth)))
 	}
 
 	// Every party is named with its object id. Display names are not unique

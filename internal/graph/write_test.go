@@ -104,8 +104,8 @@ func TestWriteReportsGraphErrors(t *testing.T) {
 	if api.Status != http.StatusForbidden || api.Code != "Authorization_RequestDenied" {
 		t.Errorf("error = %+v, want the Graph code preserved", api)
 	}
-	if api.Hint() == "" {
-		t.Error("a 403 on a write should explain the missing permission")
+	if got := err.Error(); got != "no permission" {
+		t.Errorf("Error() = %q, want a succinct refusal", got)
 	}
 }
 

@@ -16,6 +16,14 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
+	// A permission failure needs three words, not a paragraph. Graph's own
+	// message for a 403 is a boilerplate sentence that says nothing the
+	// status code did not, and repeating it crowds out whatever the user was
+	// actually doing.
+	if e.Status == http.StatusForbidden {
+		return "no permission"
+	}
+
 	msg := e.Message
 	if msg == "" {
 		msg = http.StatusText(e.Status)
@@ -34,7 +42,9 @@ func (e *APIError) Hint() string {
 	case http.StatusUnauthorized:
 		return "Your session expired or the token was rejected. Restart entra-tui to sign in again."
 	case http.StatusForbidden:
-		return "Your account lacks the delegated permission for this view, or an admin has not consented to it. See the Permissions section of the README."
+		// Deliberately silent: "no permission" is the whole story, and an
+		// explanation of consent models is not what someone wants mid-task.
+		return ""
 	case http.StatusNotFound:
 		return "That object no longer exists, or it is not visible to your account."
 	case http.StatusTooManyRequests:

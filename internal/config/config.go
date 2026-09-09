@@ -22,9 +22,6 @@ type Config struct {
 	PageSize int
 	GraphURL string
 	Resource graph.Resource
-	// Write enables the membership and ownership changes, and the extra
-	// consent scopes they need.
-	Write bool
 }
 
 // Env var names, all prefixed so they cannot collide with the Azure CLI's own.
@@ -35,7 +32,6 @@ const (
 	EnvScopes   = "ENTRA_TUI_SCOPES"
 	EnvPageSize = "ENTRA_TUI_PAGE_SIZE"
 	EnvGraphURL = "ENTRA_TUI_GRAPH_URL"
-	EnvWrite    = "ENTRA_TUI_WRITE"
 )
 
 // ErrHelp reports that usage was requested, so the caller exits zero.
@@ -62,7 +58,6 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 		pageSize = fs.Int("page-size", 0, "objects requested per Graph page (1-999)")
 		graphURL = fs.String("graph-url", "", "Graph endpoint, for sovereign clouds")
 		resource = fs.String("view", "users", "view to open on: users, groups, appregs, entapps or devices")
-		write    = fs.Bool("write", false, "allow membership and ownership changes (requests write scopes)")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -81,14 +76,9 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	}
 	cfg.Method = parsedMethod
 
-	cfg.Write = *write || isTruthy(getenv(EnvWrite))
-
 	cfg.Scopes = parseScopes(firstNonEmpty(*scopes, getenv(EnvScopes)))
 	if len(cfg.Scopes) == 0 {
 		cfg.Scopes = auth.DefaultScopes()
-		if cfg.Write {
-			cfg.Scopes = append(cfg.Scopes, auth.WriteScopes()...)
-		}
 	}
 
 	cfg.PageSize, err = parsePageSize(*pageSize, getenv(EnvPageSize))
@@ -147,15 +137,6 @@ func parsePageSize(flagVal int, envVal string) (int, error) {
 	return size, nil
 }
 
-// isTruthy reads a boolean environment variable the way a shell user expects.
-func isTruthy(s string) bool {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}
-
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if strings.TrimSpace(v) != "" {
@@ -181,10 +162,8 @@ Environment:
   ENTRA_TUI_SCOPES      same as -scopes
   ENTRA_TUI_PAGE_SIZE   same as -page-size
   ENTRA_TUI_GRAPH_URL   same as -graph-url
-  ENTRA_TUI_WRITE       same as -write
 
-entra-tui reads your directory with your own delegated permissions. Without
--write it issues GET requests only and cannot change anything; with it, the
-detail panes can add and remove members and owners, and the extra consent
-scopes for that are requested at sign-in.
+entra-tui works with your own delegated permissions. It reads the directory
+and can add and remove members and owners; it creates, deletes and renames
+nothing.
 `

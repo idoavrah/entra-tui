@@ -38,6 +38,11 @@ type Section struct {
 	// Relationship names the editable Graph collection this section lists.
 	// An empty relationship means the section is read-only.
 	Relationship Relationship
+	// List marks a section that enumerates objects rather than describing
+	// the one on screen. These are shown as tabs below the properties: an
+	// unbounded list of members has no business pushing an object's own
+	// fields off the top of the pane.
+	List bool
 }
 
 // Detail is everything the detail view knows about one object: the object
@@ -191,7 +196,7 @@ func groupSections(d Detail) []Section {
 
 // groupsSection lists what the object is a member of.
 func groupsSection(d Detail) Section {
-	s := Section{Title: "Groups"}
+	s := Section{Title: "Groups", List: true}
 	if d.GroupsErr != nil {
 		s.Note = "Could not read group membership: " + shortError(d.GroupsErr)
 		return s
@@ -214,7 +219,7 @@ func groupsSection(d Detail) Section {
 
 // membersSection lists a group's direct members.
 func membersSection(d Detail) Section {
-	s := Section{Title: "Members", Relationship: RelMembers}
+	s := Section{Title: "Members", Relationship: RelMembers, List: true}
 	if d.MembersErr != nil {
 		s.Note = "Could not read members: " + shortError(d.MembersErr)
 		return s
@@ -365,22 +370,22 @@ func appRegistrationSections(d Detail) []Section {
 
 	auth := Section{Title: "Authentication", Fields: authenticationFields(o, used)}
 
-	creds := Section{Title: "Certificates & secrets", Fields: credentialFields(o, used)}
+	creds := Section{Title: "Certificates & secrets", List: true, Fields: credentialFields(o, used)}
 	if len(creds.Fields) == 0 {
 		creds.Note = "No client secrets or certificates are configured."
 	}
 
-	perms := Section{Title: "API permissions", Fields: apiPermissionFields(d, used)}
+	perms := Section{Title: "API permissions", List: true, Fields: apiPermissionFields(d, used)}
 	if len(perms.Fields) == 0 {
 		perms.Note = "No delegated or application permissions are requested."
 	}
 
-	roles := Section{Title: "App roles", Fields: appRoleFields(o, used)}
+	roles := Section{Title: "App roles", List: true, Fields: appRoleFields(o, used)}
 	if len(roles.Fields) == 0 {
 		roles.Note = "This application defines no app roles."
 	}
 
-	exposed := Section{Title: "Exposed API", Fields: exposedScopeFields(o, used)}
+	exposed := Section{Title: "Exposed API", List: true, Fields: exposedScopeFields(o, used)}
 
 	owners := ownersSection(d)
 
@@ -422,11 +427,11 @@ func enterpriseAppSections(d Detail) []Section {
 	)}
 
 	assignments := assignmentsSection(d, o)
-	roles := Section{Title: "App roles", Fields: appRoleFields(o, used)}
+	roles := Section{Title: "App roles", List: true, Fields: appRoleFields(o, used)}
 	if len(roles.Fields) == 0 {
 		roles.Note = "This application defines no app roles; assignments use the default access role."
 	}
-	exposed := Section{Title: "Exposed permissions", Fields: exposedScopeFields(o, used)}
+	exposed := Section{Title: "Exposed permissions", List: true, Fields: exposedScopeFields(o, used)}
 	owners := ownersSection(d)
 
 	return compact(essentials, props, assignments, roles, exposed, owners,
@@ -616,7 +621,7 @@ func exposedScopeFields(o Item, used fieldSet) []Field {
 // assignmentsSection renders the users and groups an enterprise app is
 // assigned to, mapping each assignment back to the role it grants.
 func assignmentsSection(d Detail, o Item) Section {
-	s := Section{Title: "Users and groups"}
+	s := Section{Title: "Users and groups", List: true}
 	if d.AssignmentsErr != nil {
 		s.Note = "Could not read assignments: " + shortError(d.AssignmentsErr)
 		return s
@@ -664,7 +669,7 @@ func appRoleNames(o Item) map[string]string {
 }
 
 func ownersSection(d Detail) Section {
-	s := Section{Title: "Owners", Relationship: RelOwners}
+	s := Section{Title: "Owners", Relationship: RelOwners, List: true}
 	if d.OwnersErr != nil {
 		s.Note = "Could not read owners: " + shortError(d.OwnersErr)
 		return s
