@@ -3,10 +3,8 @@ package config
 import (
 	"errors"
 	"io"
-	"strings"
 	"testing"
 
-	"github.com/idoavrah/entra-tui/internal/auth"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -20,14 +18,10 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.ClientID != auth.DefaultClientID {
-		t.Errorf("ClientID = %q, want the well-known Graph CLI client", cfg.ClientID)
-	}
-	if cfg.TenantID != auth.DefaultTenant {
-		t.Errorf("TenantID = %q, want %q", cfg.TenantID, auth.DefaultTenant)
-	}
-	if cfg.Method != auth.MethodAuto {
-		t.Errorf("Method = %q, want auto", cfg.Method)
+	// An empty tenant means "whichever one the Azure CLI is signed in to",
+	// which is the right default for the overwhelming majority of accounts.
+	if cfg.TenantID != "" {
+		t.Errorf("TenantID = %q, want it left to the Azure CLI", cfg.TenantID)
 	}
 	if cfg.PageSize != graph.DefaultPageSize {
 		t.Errorf("PageSize = %d, want %d", cfg.PageSize, graph.DefaultPageSize)
@@ -35,36 +29,28 @@ func TestDefaults(t *testing.T) {
 	if cfg.Resource.Kind != graph.KindUsers {
 		t.Errorf("Resource = %s, want users", cfg.Resource.Kind)
 	}
-	if len(cfg.Scopes) != len(auth.DefaultScopes()) {
-		t.Errorf("Scopes = %v, want the defaults", cfg.Scopes)
-	}
 }
 
 func TestFlagsBeatEnvironment(t *testing.T) {
 	vars := map[string]string{
-		EnvClientID: "from-env",
 		EnvTenantID: "env-tenant",
-		EnvAuth:     "azurecli",
+		EnvGraphURL: "https://env.example/v1.0",
 		EnvPageSize: "50",
 	}
 	cfg, err := Load([]string{
-		"-client-id", "from-flag",
 		"-tenant", "flag-tenant",
-		"-auth", "browser",
+		"-graph-url", "https://flag.example/v1.0",
 		"-page-size", "25",
 	}, env(vars), io.Discard)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg.ClientID != "from-flag" {
-		t.Errorf("ClientID = %q, want the flag to win", cfg.ClientID)
-	}
 	if cfg.TenantID != "flag-tenant" {
 		t.Errorf("TenantID = %q, want the flag to win", cfg.TenantID)
 	}
-	if cfg.Method != auth.MethodBrowser {
-		t.Errorf("Method = %q, want the flag to win", cfg.Method)
+	if cfg.GraphURL != "https://flag.example/v1.0" {
+		t.Errorf("GraphURL = %q, want the flag to win", cfg.GraphURL)
 	}
 	if cfg.PageSize != 25 {
 		t.Errorf("PageSize = %d, want the flag to win", cfg.PageSize)
@@ -73,51 +59,17 @@ func TestFlagsBeatEnvironment(t *testing.T) {
 
 func TestEnvironmentUsedWhenNoFlag(t *testing.T) {
 	cfg, err := Load(nil, env(map[string]string{
-		EnvClientID: "env-client",
-		EnvAuth:     "azurecli",
+		EnvTenantID: "env-tenant",
 		EnvPageSize: "999",
 	}), io.Discard)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.ClientID != "env-client" {
-		t.Errorf("ClientID = %q, want env-client", cfg.ClientID)
-	}
-	if cfg.Method != auth.MethodAzureCLI {
-		t.Errorf("Method = %q, want azurecli", cfg.Method)
+	if cfg.TenantID != "env-tenant" {
+		t.Errorf("TenantID = %q, want env-tenant", cfg.TenantID)
 	}
 	if cfg.PageSize != 999 {
 		t.Errorf("PageSize = %d, want 999", cfg.PageSize)
-	}
-}
-
-func TestScopesAreQualifiedWithTheGraphResource(t *testing.T) {
-	cfg, err := Load([]string{"-scopes", "User.Read.All, Group.Read.All"}, env(nil), io.Discard)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	want := []string{
-		auth.GraphResource + "/User.Read.All",
-		auth.GraphResource + "/Group.Read.All",
-	}
-	if len(cfg.Scopes) != len(want) {
-		t.Fatalf("Scopes = %v, want %v", cfg.Scopes, want)
-	}
-	for i := range want {
-		if cfg.Scopes[i] != want[i] {
-			t.Errorf("Scopes[%d] = %q, want %q", i, cfg.Scopes[i], want[i])
-		}
-	}
-}
-
-func TestFullyQualifiedScopesArePassedThrough(t *testing.T) {
-	custom := "api://contoso/Directory.Read"
-	cfg, err := Load([]string{"-scopes", custom}, env(nil), io.Discard)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(cfg.Scopes) != 1 || cfg.Scopes[0] != custom {
-		t.Errorf("Scopes = %v, want [%s] untouched", cfg.Scopes, custom)
 	}
 }
 
@@ -137,13 +89,14 @@ func TestPageSizeValidation(t *testing.T) {
 	}
 }
 
-func TestUnknownAuthMethodIsRejected(t *testing.T) {
-	_, err := Load([]string{"-auth", "certificate"}, env(nil), io.Discard)
-	if err == nil {
-		t.Fatal("Load accepted an unknown auth method")
-	}
-	if !strings.Contains(err.Error(), "certificate") {
-		t.Errorf("error = %v, want it to name the bad value", err)
+func TestTheOldSignInFlagsAreGone(t *testing.T) {
+	// The Azure CLI mints the token from its own first-party client, so a
+	// client id, a scope list and a choice of method have nothing left to
+	// configure. Accepting them silently would be worse than refusing them.
+	for _, flag := range []string{"-auth", "-client-id", "-scopes"} {
+		if _, err := Load([]string{flag, "whatever"}, env(nil), io.Discard); err == nil {
+			t.Errorf("Load still accepts %s", flag)
+		}
 	}
 }
 

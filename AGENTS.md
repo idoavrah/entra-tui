@@ -7,7 +7,7 @@ the tool is; this says how it is built and which decisions are load-bearing.
 
 ```
 cmd/entra-tui/       parse config, start the TUI
-internal/auth/       delegated token acquisition (Azure CLI, PKCE)
+internal/auth/       borrows the Graph token from an `az login` session
 internal/bidi/       right-to-left reordering for non-bidi terminals
 internal/config/     flag + environment resolution
 internal/demo/       generated directory and an in-process Graph stand-in
@@ -53,12 +53,20 @@ carrying an OSC 52 write, a screen clear, a cursor jump and an RTL override.
 columns. `text.Truncate` measures the way the padding measures, so the two
 cannot disagree.
 
+**The Azure CLI is the only way in.** `auth.Resolve` shells out to `az account
+get-access-token` and nothing else. There is no client id, no scope list, no
+interactive flow, no loopback listener and no fallback: the CLI already does
+device codes, MFA, Conditional Access, WAM and every broker quirk on every
+platform, and doing it a second time badly helps nobody. Every failure comes
+back as an `auth.SignInError` carrying the command that fixes it, because
+nearly all of them are a machine that needs `az login`.
+
 **Sign-in happens before the interface opens.** `main` resolves a provider and
 builds the Graph client; the model is handed one and has no sign-in state at
 all. A dashboard that has drawn itself, reported "connected" and then admits
-in a corner that it never signed in is worse than no dashboard. It is also why
-the browser flow belongs outside the alternate screen buffer, which is no
-place for a handoff that prints and waits.
+in a corner that it never signed in is worse than no dashboard. Failing out
+before `tea.NewProgram` also puts the remedy on a plain terminal rather than
+inside the alternate screen buffer.
 
 **Telemetry properties describe the shape, never the subject.** Which view,
 which relationship, how many — never a display name, object id, tenant, UPN or
@@ -183,7 +191,7 @@ expression cannot have one field pruned out of it.
 
 ## Permissions
 
-| Scope | Covers |
+| Permission | Covers |
 | --- | --- |
 | `User.Read.All` | Users |
 | `Device.Read.All` | Devices |
@@ -191,17 +199,15 @@ expression cannot have one field pruned out of it.
 | `GroupMember.ReadWrite.All` | A user's groups, a group's members |
 | `Application.ReadWrite.All` | App registrations, enterprise apps, owners, role assignments |
 
-A `ReadWrite` scope covers its `Read` counterpart, so asking for both only
-lengthens the consent prompt. `Directory.Read.All` is deliberately not
-requested. All of these need admin consent — a property of the Graph
-permission model, not of this tool. Sections degrade individually: a section
-that cannot be read says so instead of failing the view.
+These are what the views need, not what entra-tui requests — see below. All of
+them need admin consent, a property of the Graph permission model rather than
+of this tool. Sections degrade individually: one that cannot be read says so
+instead of failing the view.
 
-Sign-in is delegated only. The default client is Microsoft Graph Command Line
-Tools (`14d82eec-204b-4c2f-b7e8-296a70dab67e`), a first-party public client
-that already has the loopback redirect URIs an interactive flow needs;
-override it with `-client-id` for tenants that block it. No token cache is
-written to disk.
+Sign-in is delegated only, and the permissions above are the Azure CLI's own
+rather than anything entra-tui asks for: the token is minted for the CLI's
+first-party client with whatever that client has been consented in the tenant.
+Nothing here can widen it. No token cache is written to disk.
 
 ## Testing
 

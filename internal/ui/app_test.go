@@ -17,7 +17,7 @@ type stubProvider struct{}
 
 func (stubProvider) Token(context.Context) (string, error) { return "tok", nil }
 func (stubProvider) Identity() auth.Identity {
-	return auth.Identity{Account: "ada@contoso.com", TenantID: "tid", Method: auth.MethodBrowser}
+	return auth.Identity{Account: "ada@contoso.com", TenantID: "tid", Method: auth.MethodAzureCLI}
 }
 
 // newDashboardModel returns a sized model on the dashboard, which is how the

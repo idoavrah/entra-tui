@@ -19,10 +19,13 @@ More screens: [docs/screens.md](docs/screens.md)
 go install github.com/idoavrah/entra-tui/cmd/entra-tui@latest
 ```
 
-Or grab a binary from [Releases](https://github.com/idoavrah/entra-tui/releases),
-then run it:
+Or grab a binary from [Releases](https://github.com/idoavrah/entra-tui/releases).
+
+Sign in with the [Azure CLI](https://aka.ms/azure-cli) — the only supported
+method — and run it:
 
 ```sh
+az login
 entra-tui
 ```
 
@@ -58,10 +61,7 @@ permissions it requests and the rest of the security model.
 
 | Flag | Environment | Default |
 | --- | --- | --- |
-| `-auth` | `ENTRA_TUI_AUTH` | `auto` |
-| `-client-id` | `ENTRA_TUI_CLIENT_ID` | Microsoft Graph Command Line Tools |
-| `-tenant` | `ENTRA_TUI_TENANT_ID` | `organizations` |
-| `-scopes` | `ENTRA_TUI_SCOPES` | see [SECURITY.md](SECURITY.md) |
+| `-tenant` | `ENTRA_TUI_TENANT_ID` | the Azure CLI's active tenant |
 | `-page-size` | `ENTRA_TUI_PAGE_SIZE` | `100` |
 | `-graph-url` | `ENTRA_TUI_GRAPH_URL` | `https://graph.microsoft.com/v1.0` |
 | `-view` | — | `users` |

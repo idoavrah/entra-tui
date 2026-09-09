@@ -29,8 +29,8 @@ func (c claims) account() string {
 
 // decodeClaims reads the payload of a JWT without verifying its signature.
 //
-// That is deliberate and safe here: the token came from MSAL or the Azure CLI
-// over TLS and is only ever forwarded to Graph, which does verify it. These
+// That is deliberate and safe here: the token came from the Azure CLI on this
+// machine and is only ever forwarded to Graph, which does verify it. These
 // claims drive nothing but the text in the status bar, so a malformed or
 // opaque token simply yields an empty Identity rather than an error.
 func decodeClaims(token string) claims {

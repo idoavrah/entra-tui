@@ -45,7 +45,6 @@ const prefetchRows = 10
 
 // Options configures the root model.
 type Options struct {
-	Auth     auth.Options
 	GraphURL string
 	PageSize int
 	// Resource is the view opened when the user picks one from the dashboard
@@ -210,8 +209,7 @@ func New(ctx context.Context, opts Options) Model {
 	return m
 }
 
-// Init starts the spinner, the listener for the sign-in URL, and the
-// unattended sign-in.
+// Init starts the spinner and the background count of every collection.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.spin.Tick, m.loadTotals())
 }
@@ -804,7 +802,7 @@ func (m Model) replaySearch(n int) (tea.Model, tea.Cmd) {
 // openResource switches to a view and loads its first page.
 func (m Model) openResource(res graph.Resource) (tea.Model, tea.Cmd) {
 	if m.client == nil {
-		return m, m.flashFor("sign in first")
+		return m, m.flashFor("no directory connection")
 	}
 	if m.coll != nil && res.Kind == m.coll.res.Kind && m.screen == screenBrowse {
 		return m, nil
