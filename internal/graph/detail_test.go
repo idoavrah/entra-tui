@@ -125,8 +125,13 @@ func TestImplicitGrantIsFlaggedAsAWarning(t *testing.T) {
 
 	for _, f := range auth.Fields {
 		if f.Label == "Implicit access tokens" {
-			if f.Value != "yes" {
-				t.Errorf("value = %q, want yes", f.Value)
+			// The tint says something is wrong; the value says what, so a
+			// reader does not have to ask why the row is amber.
+			if !strings.HasPrefix(f.Value, "yes") {
+				t.Errorf("value = %q, want it to start with yes", f.Value)
+			}
+			if !strings.Contains(f.Value, "PKCE") {
+				t.Errorf("value = %q, want it to say what to do instead", f.Value)
 			}
 			if !f.Warn {
 				t.Error("implicit access token issuance should be flagged")

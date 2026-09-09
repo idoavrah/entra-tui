@@ -666,8 +666,8 @@ func TestEnterIgnoresRowsWithNoViewOfTheirOwn(t *testing.T) {
 
 func TestBreadcrumbFollowsTheTrail(t *testing.T) {
 	m := linkedGroup(t)
-	if got := m.breadcrumb(); len(got) != 3 || got[0] != "Dashboard" || got[2] != "Research" {
-		t.Fatalf("breadcrumb = %v, want dashboard, view, object", got)
+	if got := crumbText(m.breadcrumb()); len(got) != 2 || got[0] != "Groups" || got[1] != "Research" {
+		t.Fatalf("breadcrumb = %v, want the view then the object", got)
 	}
 
 	m = send(t, m, press("enter"))
@@ -675,8 +675,8 @@ func TestBreadcrumbFollowsTheTrail(t *testing.T) {
 		Kind: graph.KindUsers, Object: graph.Item{"id": "u1", "displayName": "Ada"},
 	}})
 
-	got := m.breadcrumb()
-	want := []string{"Dashboard", "Groups", "Research", "Ada"}
+	got := crumbText(m.breadcrumb())
+	want := []string{"Groups", "Research", "Ada"}
 	if len(got) != len(want) {
 		t.Fatalf("breadcrumb = %v, want %v", got, want)
 	}
@@ -687,5 +687,88 @@ func TestBreadcrumbFollowsTheTrail(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "Research") {
 		t.Error("the trail is not on screen")
+	}
+}
+
+// crumbText is the trail's steps as plain strings.
+func crumbText(trail []crumb) []string {
+	out := make([]string, len(trail))
+	for i, c := range trail {
+		out[i] = c.text
+	}
+	return out
+}
+
+func TestDashboardIsNotAStepInTheTrail(t *testing.T) {
+	// It is where you start, so naming it on every screen says nothing. It
+	// shows only when it is what you are looking at.
+	m := browsing(t)
+	m.screen = screenDashboard
+	if got := crumbText(m.breadcrumb()); len(got) != 1 || got[0] != "Dashboard" {
+		t.Errorf("dashboard trail = %v, want just the dashboard", got)
+	}
+
+	m.screen = screenBrowse
+	for _, step := range crumbText(m.breadcrumb()) {
+		if step == "Dashboard" {
+			t.Error("the dashboard is a step in a view's trail")
+		}
+	}
+}
+
+func TestHomeAndEndJumpTheListInFront(t *testing.T) {
+	// Same split as paging: the list is the thing that runs past its space,
+	// so the ends belong to it.
+	m := linkedGroup(t)
+	section, _ := m.activeSection()
+	if len(section.Fields) < 2 {
+		t.Fatalf("the members tab has %d rows, too few to jump", len(section.Fields))
+	}
+
+	m = send(t, m, press("G"))
+	if m.tabCursor != len(section.Fields)-1 {
+		t.Errorf("tabCursor = %d after G, want the last row", m.tabCursor)
+	}
+	m = send(t, m, press("g"))
+	if m.tabCursor != 0 {
+		t.Errorf("tabCursor = %d after g, want the first row", m.tabCursor)
+	}
+}
+
+func TestRawViewScrollsAndBacksOutToTheObject(t *testing.T) {
+	m := linkedGroup(t)
+	// An object long enough to have somewhere to scroll to.
+	for i := range 60 {
+		m.detail.Object["property"+itoa(i)] = "value"
+	}
+	m = send(t, m, press("R"))
+	if !m.detailRaw {
+		t.Fatal("R did not open the raw view")
+	}
+
+	// The keys move the document, not a tab strip that is not on screen.
+	before := m.detailVP.YOffset
+	m = send(t, m, press("down"))
+	if m.detailVP.YOffset == before && m.tabCursor != 0 {
+		t.Error("the arrows moved the tab cursor instead of the document")
+	}
+	m = send(t, m, press("pgdown"))
+	if m.detailVP.YOffset == 0 {
+		t.Error("the raw view does not scroll")
+	}
+	if strings.Contains(m.detailHints(), "add") {
+		t.Error("the raw view offers keys that act on a list it is not showing")
+	}
+
+	// Esc backs out of the raw view, not out of the object.
+	m = send(t, m, press("esc"))
+	if m.detailRaw {
+		t.Error("esc left the raw view open")
+	}
+	if m.screen != screenDetail || m.detailID != "g1" {
+		t.Errorf("screen = %v id = %q, want the object still open", m.screen, m.detailID)
+	}
+	if m.detailVP.YOffset != 0 {
+		t.Errorf("came back scrolled to %d, want the top of the object", m.detailVP.YOffset)
 	}
 }

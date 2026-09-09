@@ -209,13 +209,13 @@ func TestConfirmationDefaultsToNo(t *testing.T) {
 	}
 }
 
-func TestRemoveNamesTheSelectedEntry(t *testing.T) {
+func TestDeleteNamesTheSelectedEntry(t *testing.T) {
 	m := groupDetail(t, true)
 	m = send(t, m, press("right")) // members tab
 	m = send(t, m, press("d"))
 
 	view := m.View()
-	if !strings.Contains(view, "Remove member") {
+	if !strings.Contains(view, "Delete member") {
 		t.Error("the confirmation does not say what it would do")
 	}
 	if !strings.Contains(view, "Ada") {

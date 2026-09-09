@@ -46,6 +46,10 @@ var (
 				Background(colSelBg).
 				Bold(true)
 
+	// styleSelectedBase is the selection without a colour of its own, for
+	// rows that already have one.
+	styleSelectedBase = lipgloss.NewStyle().Background(colSelBg).Bold(true)
+
 	styleDim   = lipgloss.NewStyle().Foreground(colDim)
 	styleOK    = lipgloss.NewStyle().Foreground(colOK)
 	styleWarn  = lipgloss.NewStyle().Foreground(colWarn)
@@ -79,6 +83,16 @@ var (
 	// without the underline, which the table's header rule supplies.
 	styleTabHead = lipgloss.NewStyle().Foreground(colHeadFg).Bold(true)
 )
+
+// selected marks a row as the one under the cursor while leaving whatever
+// its state says about it alone.
+//
+// Overwriting the foreground put a disabled account and a lapsed credential
+// in the same colour as everything else the moment the cursor reached them --
+// exactly when a reader is looking hardest at the row.
+func selected(state lipgloss.Style) lipgloss.Style {
+	return state.Background(colSelBg).Bold(true)
+}
 
 // accentStyle tints text with a resource's own accent colour, matching the way
 // k9s colours each resource view.

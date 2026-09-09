@@ -55,7 +55,7 @@ var keys = keyMap{
 	// One add key, not one per relationship: "a" adds to the list in front,
 	// which is the list the user is looking at and pointing into.
 	Add:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
-	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove selected")),
+	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete selected")),
 	Help:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }

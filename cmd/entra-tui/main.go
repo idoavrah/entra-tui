@@ -67,6 +67,7 @@ func run(args []string) error {
 		PageSize: cfg.PageSize,
 		Resource: cfg.Resource,
 		NoDelay:  cfg.NoDelay,
+		Version:  version,
 	}
 
 	// Demo mode swaps the tenant for a generated directory served in

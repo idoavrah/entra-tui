@@ -206,11 +206,15 @@ prompt is a wasted row.
 re-queries Graph with `$search`. That is the only thing that works in a tenant
 of any size, where what you are looking for has usually not been paged in yet.
 
-Every search you run is kept per view in one of ten **fixed slots**, shown as
-two columns in the header and replayed with `1`–`9` and `0`.
+A search that **finds something** is kept per view in one of ten **fixed
+slots**, shown as two columns in the header and replayed with `0`–`9`. The
+slots are numbered from zero so the digit on a slot is the digit you press,
+and one that found nothing is forgotten — otherwise a misspelling would sit
+there with a digit of its own for the rest of the session.
 
 The grid is a fixed size and sits beside the wordmark; it does not stretch
-with the terminal.
+with the terminal, and it is not drawn on the dashboard, where the digits
+open views instead.
 
 Slots do not rearrange. A new term takes the next free slot and, once all ten
 are used, overwrites the oldest **in place**; re-running an existing term
@@ -241,8 +245,9 @@ intelligible, then groups everything into sections.
 
 `enter` in a membership list opens that object in a pane of its own, so a
 group's members and a user's groups are traversable rather than dead text.
-The trail along the bottom row shows how far in you are, and `esc` unwinds it
-one object at a time.
+The trail along the bottom row shows how far in you are — the view in its own
+accent, the objects you linked through dimmed behind the one in front — and
+`esc` unwinds it one object at a time.
 
 **App registrations** — Essentials · Authentication · Certificates & secrets ·
 API permissions · App roles · Exposed API · Owners
@@ -335,13 +340,13 @@ implemented. **The underlying data is never modified** — only what is drawn.
 | --- | --- |
 | `↑`/`k`, `↓`/`j` | Move cursor, or walk the list tab in front |
 | `pgup` / `pgdn` | Page the table, or the list tab in front |
-| `g` / `G` | Top / bottom |
+| `g` / `G` | Top / bottom of the table, or of the list tab in front |
 | `enter` | Describe the selected object, in a table or in a list tab |
 | `/` | Search the directory |
 | `0`–`9` | Replay a search slot (in a view) |
 | `1`–`5` | Open a view (on the dashboard) |
 | `←` / `→` | Switch detail tabs; move between dashboard tiles |
-| `:` | Command prompt (`:users`, `:groups`, `:appregs`, `:entapps`, `:dash`, `:q`) |
+| `:` | Command prompt (`:users`, `:groups`, `:appregs`, `:entapps`, `:dash`, `:q`) — type a prefix, `↑`/`↓` pick from what still matches |
 | `esc` | Back one layer: out of a linked object, then out of the pane, then to the dashboard |
 | `~` | Dashboard, from anywhere |
 | `x` | App registration ⇄ enterprise app |
@@ -349,7 +354,7 @@ implemented. **The underlying data is never modified** — only what is drawn.
 | `r` | Refresh from Graph |
 | `c` (or `y`) | Copy object id (OSC 52, works over SSH) |
 | `a` | Add to the list tab in front — a member on one tab, an owner on the next |
-| `d` | Remove the selected member or owner |
+| `d` | Delete the selected row from the list in front |
 | `?` | Help |
 | `q` | Quit |
 

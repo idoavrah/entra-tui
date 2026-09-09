@@ -1,8 +1,8 @@
-Tenant   aetherforge-demo-tenant                : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
-Account  kaelen.stormrider0@aetherforge.onmi…   / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
-Signed   demo                                   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
-Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
-                                                q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
+Version  dev                                    : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
+Tenant   aetherforge-demo-tenant                / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
+Account  kaelen.stormrider0@aetherforge.onmi…   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
+Signed   demo                                   ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
+Status   connected                              q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 ┌─────────────────────────────────────────────────────────────────────────────────── Devices · 100 of 160 ───────────────────────────────────────────────────────────────────────────────────┐
 │NAME                                                                       OS                      VERSION                 JOIN TYPE                     COMPLIANT MANAGED ENABLED LAST SEEN│
@@ -37,6 +37,6 @@ Status   connected                              ? help    ←→ tab            
 │ANVIL-MAC-1126                                                             macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···      │
 │ANVIL-MAC-1156                                                             macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···      │
 └─────────────────────────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────────────────────────┘
-
 enter describe  ·  0-9 replay a search  ·  r refresh
-Dashboard › Devices
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Devices                                                                                                                                                                                       

@@ -70,10 +70,14 @@ func (m Model) listSections() []graph.Section {
 	return out
 }
 
-// activeSection is the list tab in front.
+// activeSection is the list tab in front, when one is on screen.
+//
+// The raw view has no tabs, so it has none: that is what sends the arrows,
+// the page keys and the ends to the viewport instead, and what stops the
+// footer offering keys that act on a list nobody can see.
 func (m Model) activeSection() (graph.Section, bool) {
 	lists := m.listSections()
-	if len(lists) == 0 {
+	if m.detailRaw || len(lists) == 0 {
 		return graph.Section{}, false
 	}
 	return lists[clamp(m.detailTab, 0, len(lists)-1)], true
@@ -151,14 +155,12 @@ func (m Model) renderDetail() string {
 	if name == "" {
 		name = m.detailID
 	}
-	mode := "sections"
-	if m.detailRaw {
-		mode = "raw json"
-	}
-
 	caption := accentStyle(m.detailRes.Accent).Render(m.detail.Kind.Title()) +
-		styleDim.Render(" · ") + styleContextVal.Render(bidi.Display(name)) +
-		styleDim.Render(" · "+mode)
+		styleDim.Render(" · ") + styleContextVal.Render(bidi.Display(name))
+	// Only the mode you are not usually in is worth naming.
+	if m.detailRaw {
+		caption += styleDim.Render(" · raw json")
+	}
 
 	if m.modal != modalNone {
 		return m.chrome(caption, "", m.renderModal(m.contentHeight()), m.detailHints())
@@ -284,9 +286,10 @@ func (m Model) renderTabRows(rows int) []string {
 			style = styleRowWarn
 		}
 		// Every list is walkable, whether or not its rows can be acted on:
-		// reading a long list is reason enough to move through it.
+		// reading a long list is reason enough to move through it. The
+		// selection marks the row without repainting what it says.
 		if i == m.tabCursor {
-			style = styleRowSelected
+			style = selected(style)
 		}
 		out = append(out, tabRow(cellsFor(f, columns), widths, style))
 	}
@@ -449,7 +452,7 @@ func (m Model) detailHints() string {
 		pairs = append(pairs, [2]string{"a", "add " + section.Relationship.Label()})
 	}
 	if _, ok := m.selectedEntry(); ok {
-		pairs = append(pairs, [2]string{"d", "remove"})
+		pairs = append(pairs, [2]string{"d", "delete"})
 	}
 	return hintBar(m.width, pairs...)
 }

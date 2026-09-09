@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -158,20 +159,23 @@ func TestQuickSearchBlockIsEmptyBeforeAnySearch(t *testing.T) {
 	}
 }
 
-func TestDashboardHasNoQuickSearchGrid(t *testing.T) {
-	// The slots search within a view; on the dashboard a digit opens a tile.
+func TestQuickSearchGridOnlyAppearsOverTheTable(t *testing.T) {
+	// The slots replay searches over a table; nowhere else can act on one.
 	m := browsing(t)
 	m.history.record(string(graph.KindUsers), "ada")
 	if len(m.quickSearchBlock()) == 0 {
-		t.Fatal("a view with a recorded search has no grid")
+		t.Fatal("the table with a recorded search has no grid")
 	}
 
-	m.screen = screenDashboard
-	if len(m.quickSearchBlock()) != 0 {
-		t.Error("the dashboard draws the quick-search grid")
-	}
-	if strings.Contains(m.View(), "[0] ada") {
-		t.Error("the dashboard shows a quick search")
+	for _, s := range []screen{screenDashboard, screenDetail, screenHelp} {
+		m := m
+		m.screen = s
+		if len(m.quickSearchBlock()) != 0 {
+			t.Errorf("screen %v draws the quick-search grid", s)
+		}
+		if strings.Contains(m.View(), "[0] ada") {
+			t.Errorf("screen %v shows a quick search", s)
+		}
 	}
 }
 
@@ -183,7 +187,7 @@ func TestBreadcrumbKeepsTheObjectWhenItCannotFit(t *testing.T) {
 	m.detail = graph.Detail{Kind: graph.KindUsers,
 		Object: graph.Item{"id": "u1", "displayName": "Ada Lovelace"}}
 
-	line := m.renderBreadcrumb()
+	line := m.renderBreadcrumb(m.width)
 	if !strings.Contains(line, "Ada Lovelace") {
 		t.Errorf("trail %q dropped the object rather than the steps before it", line)
 	}
@@ -202,14 +206,72 @@ func TestBreadcrumbDrawsEveryStep(t *testing.T) {
 	m.detail = graph.Detail{Kind: graph.KindUsers,
 		Object: graph.Item{"id": "u1", "displayName": "Zephyr Silverbrook"}}
 
-	line := m.renderBreadcrumb()
+	line := m.renderBreadcrumb(m.width)
 	plain := ansiPattern.ReplaceAllString(line, "")
-	for _, want := range []string{"Dashboard", "Users", "Zephyr Silverbrook"} {
+	for _, want := range []string{"Users", "Zephyr Silverbrook"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("trail %q is missing %q", plain, want)
 		}
 	}
 	if strings.HasSuffix(strings.TrimSpace(plain), "›") {
 		t.Errorf("trail %q ends in a separator", plain)
+	}
+}
+
+func TestRightToLeftSearchTermsAreReadable(t *testing.T) {
+	// Typing a Hebrew name and watching it come out backwards is what this
+	// is about: the term is reordered for display everywhere it is shown.
+	const term = "שרה"
+	reordered := bidi.Display(term)
+	if reordered == term {
+		t.Fatal("the test term is not reordered, so it proves nothing")
+	}
+
+	m := browsing(t)
+	m.history.record(string(graph.KindUsers), term)
+	m.coll.search = term
+
+	grid := strings.Join(m.quickSearchBlock(), "\n")
+	if !strings.Contains(grid, reordered) {
+		t.Errorf("the quick-search slot shows %q in logical order", term)
+	}
+	if !strings.Contains(m.tableCaption(), reordered) {
+		t.Errorf("the frame's title shows %q in logical order", term)
+	}
+
+	// ...and while it is being typed.
+	m.mode = modeSearch
+	m.input.SetValue(term)
+	if !strings.Contains(m.renderPromptLine(), reordered) {
+		t.Errorf("the prompt shows %q in logical order", term)
+	}
+}
+
+func TestPlainPromptTextKeepsTheRealCursor(t *testing.T) {
+	// Reordering costs the cursor its place, so it is only done where there
+	// is right-to-left text to fix.
+	m := browsing(t)
+	m.mode = modeSearch
+	m.input.SetValue("ada")
+	m.input.Focus()
+
+	if got, want := m.renderPromptLine(), stylePrompt.Render("/")+m.input.View(); got != want {
+		t.Errorf("prompt = %q, want the input's own view for plain text", got)
+	}
+}
+
+func TestSelectionKeepsARowsStateColour(t *testing.T) {
+	// The cursor is exactly when a reader is looking hardest at a row, so
+	// that is the worst moment to repaint a disabled account in the same
+	// colour as everything else.
+	warn, plain := selected(styleRowWarn), selected(styleRow)
+	if warn.GetForeground() == plain.GetForeground() {
+		t.Error("a flagged row and a plain one look the same under the cursor")
+	}
+	if warn.GetForeground() != styleRowWarn.GetForeground() {
+		t.Error("the selection repainted what the row's state says about it")
+	}
+	if warn.GetBackground() != styleRowSelected.GetBackground() {
+		t.Error("the selected row is not marked as selected at all")
 	}
 }

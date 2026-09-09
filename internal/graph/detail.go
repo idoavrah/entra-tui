@@ -559,10 +559,23 @@ func authenticationFields(o Item, used fieldSet) []Field {
 
 	// Implicit grant is a security-relevant setting, so report it explicitly
 	// rather than letting an absent value read as "off".
+	//
+	// Only the access-token half is flagged. The implicit flow returns
+	// tokens in the URL fragment, where they reach browser history and
+	// referrers, cannot be bound with PKCE, and come without refresh tokens
+	// -- so apps ask for long-lived ones. Microsoft's guidance is the
+	// authorization code flow with PKCE instead. Implicit ID tokens are not
+	// flagged: an ID token is not a credential for calling an API, and the
+	// hybrid flow that issues one is still a supported pattern.
 	if web, ok := o["web"].(map[string]any); ok {
 		if ig, ok := web["implicitGrantSettings"].(map[string]any); ok {
+			access := boolLabel(ig["enableAccessTokenIssuance"])
+			if ig["enableAccessTokenIssuance"] == true {
+				// The tint says something is wrong; this says what.
+				access += " (legacy, prefer PKCE)"
+			}
 			out = append(out,
-				Field{Label: "Implicit access tokens", Value: boolLabel(ig["enableAccessTokenIssuance"]),
+				Field{Label: "Implicit access tokens", Value: access,
 					Warn: ig["enableAccessTokenIssuance"] == true},
 				Field{Label: "Implicit ID tokens", Value: boolLabel(ig["enableIdTokenIssuance"])})
 		}

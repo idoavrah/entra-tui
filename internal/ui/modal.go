@@ -220,7 +220,7 @@ func (m Model) confirmLines(width int) []string {
 		whoID = m.modalTarget.ID()
 		whoDetail = m.modalTarget.String("userPrincipalName")
 	} else {
-		what, preposition = "Remove", "From"
+		what, preposition = "Delete", "From"
 		who, whoID, whoDetail = m.modalEntry.name, m.modalEntry.id, m.modalEntry.detail
 	}
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -56,6 +57,9 @@ type Options struct {
 	// rest in when the read lands. The default waits, so the pane is drawn
 	// once rather than flickering as every value is replaced.
 	NoDelay bool
+	// Version is the build stamp shown in the header, so a bug report can
+	// say which build it came from without anyone having to ask.
+	Version string
 
 	// Client and Identity bypass sign-in when supplied, which is how demo
 	// mode runs with no tenant behind it.
@@ -143,7 +147,11 @@ type Model struct {
 	detailRes graph.Resource
 	// detailStack is the panes esc backs out to, innermost last.
 	detailStack []detailFrame
-	detailVP    viewport.Model
+
+	// cmdChoice is the completion selected in the ":" prompt, an index into
+	// the commands matching what has been typed.
+	cmdChoice int
+	detailVP  viewport.Model
 	// detailTab is the list tab in front; tabCursor and tabOffset are the
 	// selection and scroll position within it.
 	detailTab int
@@ -423,6 +431,13 @@ func (m Model) handlePage(msg pageMsg) (tea.Model, tea.Cmd) {
 	m.coll.appendPage(msg.page)
 	m.loading, m.loadingMore = false, false
 
+	// A search earns its slot by finding something. Recording it when it was
+	// typed filled the slots with misspellings, and each one sat there for
+	// the rest of the session with a digit of its own.
+	if !msg.append && m.coll.search != "" && m.coll.len() > 0 {
+		m.history.record(string(m.coll.res.Kind), m.coll.search)
+	}
+
 	if idx := m.coll.indexOf(selectedID); idx >= 0 {
 		m.cursor = idx
 	}
@@ -571,11 +586,9 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.PageDown):
 		return m.pageDetail(1)
 	case key.Matches(msg, keys.Home):
-		m.detailVP.GotoTop()
-		return m, nil
+		return m.jumpDetail(-1)
 	case key.Matches(msg, keys.End):
-		m.detailVP.GotoBottom()
-		return m, nil
+		return m.jumpDetail(1)
 
 	case key.Matches(msg, keys.Add):
 		return m.addToActiveTab()
@@ -586,17 +599,25 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.followLink()
 
 	case key.Matches(msg, keys.Back):
-		// Esc unwinds one link at a time, and only leaves the pane once
-		// there is nothing left to come back to.
+		// Esc unwinds one layer at a time, and the raw view is a layer: it
+		// backs out to the object it is showing, not out of the object.
+		if m.detailRaw {
+			m.detailRaw = false
+			m.detailVP.GotoTop()
+			return m.refreshDetail(), nil
+		}
 		if popped, ok := m.popDetail(); ok {
 			return popped, nil
 		}
-		m.cancelPendingDetail()
-		m.screen = screenBrowse
-		m.detail = graph.Detail{}
-		m.detailSections = nil
-		m.detailID = ""
-		return m, nil
+		return m.leaveDetail(), nil
+
+	// The header calls these general, so they have to work here too: ":"
+	// changes view from anywhere, and "/" searches the table this pane came
+	// out of.
+	case key.Matches(msg, keys.Command):
+		return m.openPrompt(modeCommand, "")
+	case key.Matches(msg, keys.Search):
+		return m.openPrompt(modeSearch, "")
 	case key.Matches(msg, keys.Quit):
 		m.quitting = true
 		return m, tea.Quit
@@ -618,6 +639,18 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// leaveDetail closes the pane and everything it was showing, back to the
+// table it was opened from.
+func (m Model) leaveDetail() Model {
+	m.cancelPendingDetail()
+	m.screen = screenBrowse
+	m.detail = graph.Detail{}
+	m.detailSections = nil
+	m.detailID = ""
+	m.detailStack = nil
+	return m
+}
+
 // moveTabCursor walks the active list, scrolling the properties instead when
 // there is no list to walk.
 func (m Model) moveTabCursor(delta int) (tea.Model, tea.Cmd) {
@@ -636,11 +669,28 @@ func (m Model) moveTabCursor(delta int) (tea.Model, tea.Cmd) {
 // front. Only an object with no lists at all pages its properties.
 func (m Model) pageDetail(direction int) (tea.Model, tea.Cmd) {
 	if _, ok := m.activeSection(); !ok {
-		step := direction * m.propertyHeight(m.contentHeight())
-		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset+step))
+		// A page is what the viewport is actually showing, which in the raw
+		// view is the whole pane and elsewhere the properties' share of it.
+		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset+direction*max(1, m.detailVP.Height)))
 		return m, nil
 	}
 	return m.moveTabCursor(direction * max(1, m.tabRowsHeight()))
+}
+
+// jumpDetail goes to one end of the list in front, or of the properties when
+// there is no list. It is the same split as paging: the lists are what run
+// past their space.
+func (m Model) jumpDetail(direction int) (tea.Model, tea.Cmd) {
+	section, ok := m.activeSection()
+	if !ok {
+		if direction < 0 {
+			m.detailVP.GotoTop()
+		} else {
+			m.detailVP.GotoBottom()
+		}
+		return m, nil
+	}
+	return m.moveTabCursor(direction * len(section.Fields))
 }
 
 // addToActiveTab adds to whichever list is in front, so one key covers
@@ -679,9 +729,58 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		return m.commitPrompt()
 	}
+	// In the command prompt the arrows walk the views whose name starts with
+	// what has been typed, so ":" is a menu you can narrow rather than a
+	// name you have to remember in full.
+	if m.mode == modeCommand && (msg.Type == tea.KeyUp || msg.Type == tea.KeyDown) {
+		if n := len(m.commandMatches()); n > 0 {
+			delta := 1
+			if msg.Type == tea.KeyUp {
+				delta = -1
+			}
+			m.cmdChoice = ((m.cmdChoice+delta)%n + n) % n
+		}
+		return m, nil
+	}
+
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	// What was typed decides the list, so the selection starts again at its
+	// head rather than pointing into the old one.
+	m.cmdChoice = 0
 	return m, cmd
+}
+
+// commandNames is everything ":" accepts, sorted, so the completion offers
+// them in one predictable order.
+func commandNames() []string {
+	names := []string{"dash", "help", "quit"}
+	for _, r := range graph.All() {
+		names = append(names, r.Aliases[0])
+	}
+	sort.Strings(names)
+	return names
+}
+
+// commandMatches are the commands starting with what has been typed.
+func (m Model) commandMatches() []string {
+	typed := strings.ToLower(strings.TrimSpace(m.input.Value()))
+	var out []string
+	for _, name := range commandNames() {
+		if strings.HasPrefix(name, typed) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// selectedCommand is the completion enter would run, if there is one.
+func (m Model) selectedCommand() (string, bool) {
+	matches := m.commandMatches()
+	if len(matches) == 0 {
+		return "", false
+	}
+	return matches[clamp(m.cmdChoice, 0, len(matches)-1)], true
 }
 
 func (m Model) commitPrompt() (tea.Model, tea.Cmd) {
@@ -694,6 +793,12 @@ func (m Model) commitPrompt() (tea.Model, tea.Cmd) {
 	case modeSearch:
 		return m.runSearch(value)
 	case modeCommand:
+		// Enter runs what the completion is pointing at. Typing ":a" and
+		// pressing enter should open app registrations, not report that "a"
+		// is not a command.
+		if name, ok := m.selectedCommand(); ok {
+			return m.runCommand(name)
+		}
 		return m.runCommand(value)
 	}
 	return m, nil
@@ -701,6 +806,7 @@ func (m Model) commitPrompt() (tea.Model, tea.Cmd) {
 
 func (m Model) openPrompt(mode inputMode, initial string) (tea.Model, tea.Cmd) {
 	m.mode = mode
+	m.cmdChoice = 0
 	m.input.SetValue(initial)
 	m.input.CursorEnd()
 	m.err = nil
@@ -739,8 +845,9 @@ func (m Model) runSearch(term string) (tea.Model, tea.Cmd) {
 	if term == m.coll.search {
 		return m, nil
 	}
-	if term != "" {
-		m.history.record(string(m.coll.res.Kind), term)
+	// A search is run over the table, so running one from a pane leaves it.
+	if m.screen == screenDetail {
+		m = m.leaveDetail()
 	}
 	m.coll.search = term
 	return m.reload()

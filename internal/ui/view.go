@@ -300,11 +300,20 @@ func (m Model) contextLines() []string {
 		method = "unknown"
 	}
 	return []string{
+		styleContextKey.Render("Version  ") + styleDim.Render(m.versionLabel()),
 		styleContextKey.Render("Tenant   ") + styleContextVal.Render(graph.Truncate(tenant, 36)),
 		styleContextKey.Render("Account  ") + styleContextVal.Render(graph.Truncate(m.identity.Label(), 36)),
 		styleContextKey.Render("Signed   ") + styleDim.Render(method),
 		styleContextKey.Render("Status   ") + m.statusIndicator(),
 	}
+}
+
+// versionLabel is the build this is, for the header.
+func (m Model) versionLabel() string {
+	if m.opts.Version == "" {
+		return "dev"
+	}
+	return graph.Truncate(m.opts.Version, 36)
 }
 
 // statusIndicator reports in-flight work.
@@ -326,10 +335,10 @@ func (m Model) statusIndicator() string {
 // quickSearchBlock renders this view's search slots as two columns. Slots
 // keep fixed positions, so each digit keeps meaning the same search.
 func (m Model) quickSearchBlock() []string {
-	// The slots replay searches within a view, so they belong to a view. On
-	// the dashboard there is nothing for a digit to search, and the digits
-	// mean something else there anyway.
-	if m.coll == nil || m.screen == screenDashboard {
+	// The slots replay searches over a table, so the table is the only place
+	// they mean anything. On the dashboard the digits open views instead, and
+	// a detail pane has nothing to search at all.
+	if m.coll == nil || m.screen != screenBrowse {
 		return nil
 	}
 	kind := string(m.coll.res.Kind)
@@ -368,7 +377,7 @@ func (m Model) quickEntry(slots []string, index int) string {
 	if slots[index] == m.coll.search {
 		style = styleOK
 	}
-	text := graph.Truncate(slots[index], quickEntryWidth-labelWidth)
+	text := bidi.Display(graph.Truncate(slots[index], quickEntryWidth-labelWidth))
 	return styleHintKey.Render("["+quickDigit(index)+"]") + style.Render(" "+text) +
 		spaces(quickEntryWidth-labelWidth-lipgloss.Width(text))
 }
@@ -388,7 +397,57 @@ func (m Model) renderPromptLine() string {
 	if m.mode == modeNormal {
 		return ""
 	}
-	return stylePrompt.Render(m.promptPrefix()) + m.input.View()
+	line := stylePrompt.Render(m.promptPrefix()) + m.promptValue()
+	if m.mode == modeCommand {
+		line += m.renderCommandChoices(lipgloss.Width(line))
+	}
+	return line
+}
+
+// promptValue draws what has been typed.
+//
+// The input's own view puts the string on screen in logical order, which
+// shows a right-to-left term reversed -- searching for a Hebrew name meant
+// typing it and watching it come out backwards. Reordering costs the cursor
+// its place mid-string, so it is only done when there is right-to-left text
+// to fix, and the cursor is drawn at the end, where typing leaves it.
+func (m Model) promptValue() string {
+	value := m.input.Value()
+	if !bidi.Contains(value) {
+		return m.input.View()
+	}
+	return styleContextVal.Render(bidi.Display(value)) + styleDim.Render("▌")
+}
+
+// renderCommandChoices lists the views the typed prefix still matches, with
+// the one enter would open marked. Names are dropped from the right as the
+// line fills rather than the whole strip being cut, which would sever the
+// styling on the last one drawn.
+func (m Model) renderCommandChoices(used int) string {
+	matches := m.commandMatches()
+	if len(matches) == 0 {
+		return "  " + styleWarn.Render("no such view")
+	}
+	chosen, _ := m.selectedCommand()
+
+	var b strings.Builder
+	room := m.width - used
+	for _, name := range matches {
+		entry := "  " + name
+		if lipgloss.Width(entry) > room {
+			break
+		}
+		if name == chosen {
+			b.WriteString("  " + styleRowSelected.Render(name))
+		} else {
+			b.WriteString("  " + styleDim.Render(name))
+		}
+		room -= lipgloss.Width(entry)
+	}
+	if hint := "   ↑↓"; len(matches) > 1 && lipgloss.Width(hint) <= room {
+		b.WriteString(styleDim.Render(hint))
+	}
+	return b.String()
 }
 
 func (m Model) promptPrefix() string {
@@ -417,18 +476,35 @@ func (m Model) renderFooter(hints string) string {
 			second = styleWarn.Render(graph.Truncate(hint, m.width))
 		}
 	}
-	return m.renderStatusLine() + "\n" + second + "\n" + m.renderBreadcrumb()
+	// The hints sit against the frame's bottom edge, a rule separates them
+	// from the trail, and the trail shares its row with whatever the app has
+	// to say -- an error or a confirmation -- pushed to the right.
+	rule := styleBorder.Render(strings.Repeat(boxHorizontal, max(0, m.width)))
+	return second + "\n" + rule + "\n" + m.renderTrailLine()
 }
 
-// renderBreadcrumb draws the trail from the dashboard to what is on screen.
+// renderTrailLine is the bottom row: the trail on the left, the status on the
+// right. They share a row because the status is usually empty, and a footer
+// that changes height would move the frame above it.
+func (m Model) renderTrailLine() string {
+	status := m.renderStatusLine()
+	trail := m.renderBreadcrumb(max(0, m.width-lipgloss.Width(status)-2))
+	gap := m.width - lipgloss.Width(trail) - lipgloss.Width(status)
+	if gap < 1 {
+		return trail
+	}
+	return trail + spaces(gap) + status
+}
+
+// renderBreadcrumb draws the trail to what is on screen, fitted to width.
 //
 // Following a link out of a membership list can go several objects deep, and
 // the pane's own title only names the object in front of you; the trail is
 // what says which group you reached this user through, and how far esc has
 // to take you back.
-func (m Model) renderBreadcrumb() string {
+func (m Model) renderBreadcrumb(width int) string {
 	trail := m.breadcrumb()
-	if len(trail) == 0 {
+	if len(trail) == 0 || width <= 0 {
 		return ""
 	}
 	const separator = " › "
@@ -437,8 +513,8 @@ func (m Model) renderBreadcrumb() string {
 	// came through is worth losing before what you are looking at. An
 	// ellipsis stands in for whatever was dropped.
 	steps := trail
-	for start := 1; len(steps) > 1 && trailWidth(steps, separator) > m.width; start++ {
-		steps = append([]string{"…"}, trail[start:]...)
+	for start := 1; len(steps) > 1 && trailWidth(steps, separator) > width; start++ {
+		steps = append([]crumb{{text: "…", style: styleDim}}, trail[start:]...)
 	}
 
 	// A step wider than the terminal is cut before it is styled. Cutting the
@@ -446,57 +522,69 @@ func (m Model) renderBreadcrumb() string {
 	// escapes as characters, which is what once ate the object's name and
 	// left the trail ending in a separator.
 	last := len(steps) - 1
-	steps[last] = graph.Truncate(steps[last], m.width)
+	steps[last].text = graph.Truncate(steps[last].text, width)
 
 	var b strings.Builder
 	for i, step := range steps {
 		if i > 0 {
 			b.WriteString(styleDim.Render(separator))
 		}
-		style := styleDim
-		if i == last {
-			style = styleHintDesc
-		}
-		b.WriteString(style.Render(bidi.Display(step)))
+		b.WriteString(step.style.Render(bidi.Display(step.text)))
 	}
 	return b.String()
 }
 
+// crumb is one step of the trail, and how it is drawn. The steps are tinted
+// by what they are: the view in its own accent, the objects linked through in
+// passing, and what is in front of you brightest.
+type crumb struct {
+	text  string
+	style lipgloss.Style
+}
+
 // trailWidth is what a trail costs on screen, separators included.
-func trailWidth(trail []string, separator string) int {
+func trailWidth(trail []crumb, separator string) int {
 	w := (len(trail) - 1) * lipgloss.Width(separator)
 	for _, s := range trail {
-		w += lipgloss.Width(s)
+		w += lipgloss.Width(s.text)
 	}
 	return w
 }
 
-// breadcrumb is the trail as plain steps, outermost first.
-func (m Model) breadcrumb() []string {
-	trail := []string{"Dashboard"}
-	if m.screen == screenDashboard {
-		return trail
-	}
-	if m.screen == screenHelp {
-		return append(trail, "Help")
-	}
-	if m.coll == nil {
-		return trail
+// breadcrumb is the trail as steps, outermost first.
+//
+// The dashboard is not a step: it is where you start, so naming it on every
+// screen says nothing. It appears only when it is what you are looking at.
+func (m Model) breadcrumb() []crumb {
+	switch {
+	case m.screen == screenDashboard:
+		return []crumb{{text: "Dashboard", style: styleContextVal}}
+	case m.screen == screenHelp:
+		return []crumb{{text: "Help", style: styleContextVal}}
+	case m.coll == nil:
+		return nil
 	}
 
 	view := m.coll.res.Title
 	if m.coll.search != "" {
 		view += ` "` + m.coll.search + `"`
 	}
-	trail = append(trail, view)
+	trail := []crumb{{text: view, style: accentStyle(m.coll.res.Accent)}}
 	if m.screen != screenDetail {
 		return trail
 	}
 
 	for _, f := range m.detailStack {
-		trail = append(trail, objectLabel(f.detail, f.id))
+		trail = append(trail, crumb{text: objectLabel(f.detail, f.id), style: styleDim})
 	}
-	return append(trail, objectLabel(m.detail, m.detailID))
+	trail = append(trail, crumb{text: objectLabel(m.detail, m.detailID), style: styleContextVal})
+
+	// Only the object in front is bright; the one before it is the pane esc
+	// goes back to, which is worth reading over the rest.
+	if n := len(trail); n > 2 {
+		trail[n-2].style = styleDetailVal
+	}
+	return trail
 }
 
 // objectLabel is what to call an object in the trail.
@@ -566,16 +654,16 @@ func (m Model) renderBrowse() string {
 			break
 		}
 		line := renderCells(cells, widths)
+		style := rowStyle(m.coll.res, item)
 		if i == m.cursor {
 			// Pad to the frame's inner width so the selection bar spans the
 			// row rather than stopping at the last non-blank character.
 			if pad := inner - lipgloss.Width(line); pad > 0 {
 				line += spaces(pad)
 			}
-			line = styleRowSelected.Render(line)
-		} else {
-			line = rowStyle(m.coll.res, item).Render(line)
+			style = selected(style)
 		}
+		line = style.Render(line)
 		body = append(body, line)
 	}
 
@@ -617,7 +705,7 @@ func (m Model) tableCaption() string {
 
 	// Only a searched view is sorted, so only a searched view says so.
 	if m.coll.search != "" {
-		parts = append(parts, styleOK.Render("search: "+m.coll.search))
+		parts = append(parts, styleOK.Render("search: "+bidi.Display(m.coll.search)))
 		parts = append(parts, styleDim.Render("↑name"))
 	}
 	return strings.Join(parts, styleDim.Render(" · "))
@@ -667,17 +755,19 @@ func (m Model) renderHelp() string {
 	}
 	viewRows = append(viewRows,
 		[2]string{"~  :dash", "Dashboard"},
-		[2]string{"esc", "back one layer"},
+		[2]string{":  ↑/↓", "pick from what a prefix matches"},
 	)
 
 	cols := lipgloss.JoinHorizontal(lipgloss.Top,
 		section("NAVIGATION", [][2]string{
-			{"↑/k ↓/j", "move cursor"},
+			{"↑/k ↓/j", "move cursor, or walk the list in front"},
 			{"←/→", "switch list tab"},
 			{"pgup/pgdn", "page the list"},
-			{"g / G", "top / bottom"},
-			{"enter", "describe object"},
+			{"g / G", "top / bottom of the list"},
+			{"enter", "describe, or open a linked object"},
+			{"esc", "back one layer"},
 			{"x", "app reg ⇄ ent app"},
+			{"q", "quit"},
 		}),
 		"    ",
 		section("VIEWS", viewRows),
@@ -687,7 +777,6 @@ func (m Model) renderHelp() string {
 		section("SEARCH", [][2]string{
 			{"/", "search the directory"},
 			{"0-9", "replay a slot"},
-			{"esc", "clear the search"},
 			{":", "command prompt"},
 		}),
 		"    ",
@@ -696,14 +785,17 @@ func (m Model) renderHelp() string {
 			{"R", "raw json (detail)"},
 			{"c", "copy object id"},
 			{"a", "add to the list in front"},
-			{"d", "remove the selected row"},
+			{"d", "delete the selected row"},
 		}),
 	)
 
 	note := styleDim.Render(
 		"Search runs against Microsoft Graph, not just the rows on screen.\n" +
-			"Quick-search slots keep fixed positions, so a digit always replays the same term.\n" +
-			"a adds to whichever list is in front, so it means member on one tab and owner on the next.\n" +
+			"esc backs out; it does not clear a search. Run an empty search to do that.\n" +
+			"Slots keep fixed positions, so a digit always replays the same term. A search\n" +
+			"that finds nothing keeps no slot.\n" +
+			"a adds to whichever list is in front, so it means member on one tab and owner\n" +
+			"on the next; d deletes the row under the cursor from that same list.\n" +
 			"entra-tui reads the directory and edits only members and owners.")
 
 	body := strings.Split(strings.Join([]string{cols, "", cols2, "", note}, "\n"), "\n")

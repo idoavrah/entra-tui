@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -401,18 +402,38 @@ func TestQuickSearchSlotsKeepTheirDigits(t *testing.T) {
 	}
 }
 
-func TestSearchIsRecordedAsAQuickSearch(t *testing.T) {
+func TestSearchIsRecordedOnceItFindsSomething(t *testing.T) {
 	m := browsing(t)
 	m = send(t, m, press("/"))
 	m = typeKeys(t, m, "finance")
 	m = send(t, m, press("enter"))
 
+	// Typing a term is not what earns it a slot.
+	if got := m.history.list(string(graph.KindUsers)); len(got) != 0 {
+		t.Fatalf("history = %v before any results, want it empty", got)
+	}
+
+	m = loadUsers(t, m, "Finance Bot")
 	recent := m.history.list(string(graph.KindUsers))
 	if len(recent) != 1 || recent[0] != "finance" {
 		t.Fatalf("history = %v, want [finance]", recent)
 	}
 	if !strings.Contains(m.View(), "finance") {
 		t.Error("the quick-search bar does not show the recent search")
+	}
+}
+
+func TestSearchThatFindsNothingKeepsNoSlot(t *testing.T) {
+	// A misspelling would otherwise sit in a slot, with a digit of its own,
+	// for the rest of the session.
+	m := browsing(t)
+	m = send(t, m, press("/"))
+	m = typeKeys(t, m, "fnance")
+	m = send(t, m, press("enter"))
+	m = loadUsers(t, m)
+
+	if got := m.history.list(string(graph.KindUsers)); len(got) != 0 {
+		t.Errorf("history = %v, want a search with no results forgotten", got)
 	}
 }
 
@@ -1043,15 +1064,19 @@ func TestFooterStaysFixedAtTheBottom(t *testing.T) {
 	m := loadUsers(t, browsing(t), "Ada")
 	lines := strings.Split(m.View(), "\n")
 
-	// Bottom up: the trail, the key hints, the status line, then the frame.
+	// Bottom up: the trail, a rule, the key hints, then the frame the hints
+	// are attached to.
 	if !strings.Contains(lines[len(lines)-1], "Users") {
 		t.Errorf("last line = %q, want the breadcrumb", lines[len(lines)-1])
 	}
-	if !strings.Contains(lines[len(lines)-2], "refresh") {
-		t.Errorf("line %q, want the key hints", lines[len(lines)-2])
+	if rule := ansiPattern.ReplaceAllString(lines[len(lines)-2], ""); strings.Trim(rule, boxHorizontal) != "" {
+		t.Errorf("line %q, want a rule between the hints and the trail", rule)
+	}
+	if !strings.Contains(lines[len(lines)-3], "refresh") {
+		t.Errorf("line %q, want the key hints", lines[len(lines)-3])
 	}
 	if !strings.HasPrefix(lines[len(lines)-4], boxBottomLeft) {
-		t.Errorf("line %q should be the frame's bottom border", lines[len(lines)-4])
+		t.Errorf("line %q should be the frame's bottom border, with the hints against it", lines[len(lines)-4])
 	}
 }
 
@@ -1151,5 +1176,103 @@ func TestUnsearchedViewIsNotReordered(t *testing.T) {
 		if names[i] != want[i] {
 			t.Fatalf("order = %v, want %v -- the directory's own order", names, want)
 		}
+	}
+}
+
+// ------------------------------------------------------- command completion
+
+func TestCommandPromptNarrowsAsYouType(t *testing.T) {
+	m := send(t, browsing(t), press(":"))
+
+	// Everything, sorted, before a letter is typed.
+	all := m.commandMatches()
+	if len(all) < 6 {
+		t.Fatalf("matches = %v, want every command", all)
+	}
+	if !sort.StringsAreSorted(all) {
+		t.Errorf("matches = %v, want them sorted", all)
+	}
+
+	m = typeKeys(t, m, "d")
+	got := m.commandMatches()
+	want := []string{"dash", "devices"}
+	if len(got) != len(want) {
+		t.Fatalf("matches for \"d\" = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("matches for \"d\" = %v, want %v", got, want)
+		}
+	}
+	if strings.Contains(m.View(), "users") {
+		t.Error("the prompt still offers commands the prefix rules out")
+	}
+}
+
+func TestArrowsWalkTheCommandChoices(t *testing.T) {
+	m := typeKeys(t, send(t, browsing(t), press(":")), "d")
+
+	if got, _ := m.selectedCommand(); got != "dash" {
+		t.Fatalf("selected = %q, want the first match", got)
+	}
+	m = send(t, m, press("down"))
+	if got, _ := m.selectedCommand(); got != "devices" {
+		t.Fatalf("selected = %q, want the next match", got)
+	}
+	// The list wraps rather than sticking at either end.
+	m = send(t, m, press("down"))
+	if got, _ := m.selectedCommand(); got != "dash" {
+		t.Errorf("selected = %q, want it to wrap round", got)
+	}
+	m = send(t, m, press("up"))
+	if got, _ := m.selectedCommand(); got != "devices" {
+		t.Errorf("selected = %q, want up to wrap the other way", got)
+	}
+
+	// Enter opens what the completion points at, not the letters typed.
+	m = send(t, m, press("enter"))
+	if m.coll.res.Kind != graph.KindDevices {
+		t.Errorf("opened %s, want the selected devices view", m.coll.res.Kind)
+	}
+}
+
+func TestTypingResetsTheCommandChoice(t *testing.T) {
+	// The list changes under the selection, so it starts again at the head
+	// rather than pointing into the old one.
+	m := typeKeys(t, send(t, browsing(t), press(":")), "d")
+	m = send(t, m, press("down"))
+	m = typeKeys(t, m, "e")
+
+	if m.cmdChoice != 0 {
+		t.Errorf("cmdChoice = %d after typing, want the head of the new list", m.cmdChoice)
+	}
+	if got, _ := m.selectedCommand(); got != "devices" {
+		t.Errorf("selected = %q, want the only match for \"de\"", got)
+	}
+}
+
+func TestGeneralKeysWorkInsideAPane(t *testing.T) {
+	// The header calls these general, so a pane cannot be a dead end for
+	// them: the legend would be promising something that does not work.
+	m := describeRow(t, loadUsers(t, browsing(t), "Ada"))
+
+	// ":" changes view from here.
+	view := typeKeys(t, send(t, m, press(":")), "groups")
+	view = send(t, view, press("enter"))
+	if view.coll.res.Kind != graph.KindGroups || view.screen != screenBrowse {
+		t.Errorf("view = %s screen = %v, want the groups table", view.coll.res.Kind, view.screen)
+	}
+
+	// "/" searches the table the pane came out of, and leaves the pane.
+	found := typeKeys(t, send(t, m, press("/")), "ada")
+	found = send(t, found, press("enter"))
+	if found.screen != screenBrowse {
+		t.Errorf("screen = %v, want the table a search runs over", found.screen)
+	}
+	if found.coll.search != "ada" {
+		t.Errorf("search = %q, want the term the pane was left for", found.coll.search)
+	}
+	if found.detailID != "" || len(found.detailStack) != 0 {
+		t.Error("the pane was left behind but not cleared")
 	}
 }

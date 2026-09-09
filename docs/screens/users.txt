@@ -1,8 +1,8 @@
-Tenant   aetherforge-demo-tenant                : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
-Account  kaelen.stormrider0@aetherforge.onmi…   / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
-Signed   demo                                   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
-Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
-                                                q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
+Version  dev                                    : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
+Tenant   aetherforge-demo-tenant                / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
+Account  kaelen.stormrider0@aetherforge.onmi…   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
+Signed   demo                                   ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
+Status   connected                              q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 ┌──────────────────────────────────────────────────────────────────────────────────── Users · 100 of 420 ────────────────────────────────────────────────────────────────────────────────────┐
 │NAME                                                 USER PRINCIPAL NAME                                                     TYPE   ENABLED DEPARTMENT                                      │
@@ -37,6 +37,6 @@ Status   connected                              ? help    ←→ tab            
 │Corvin Duskbane                                      corvin.duskbane154@aetherforge.onmicrosoft.com                          Member yes     Art & Animation                                 │
 │Corvin Emberfall                                     corvin.emberfall42@aetherforge.onmicrosoft.com                          Member yes     Live Ops                                        │
 └─────────────────────────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────────────────────────┘
-
 enter describe  ·  0-9 replay a search  ·  r refresh
-Dashboard › Users
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Users                                                                                                                                                                                         
