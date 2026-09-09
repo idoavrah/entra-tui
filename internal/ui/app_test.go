@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -19,7 +20,8 @@ func (stubProvider) Identity() auth.Identity {
 	return auth.Identity{Account: "ada@contoso.com", TenantID: "tid", Method: auth.MethodBrowser}
 }
 
-// newLoginModel returns a sized model sitting on the login screen.
+// newLoginModel returns a sized model sitting on the login screen, mid
+// unattended Azure CLI attempt.
 func newLoginModel(t *testing.T) Model {
 	t.Helper()
 	res, ok := graph.Lookup("users")
@@ -33,6 +35,15 @@ func newLoginModel(t *testing.T) Model {
 		Resource: res,
 	})
 	return send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
+}
+
+// pickerModel returns a login screen after the unattended Azure CLI attempt
+// has failed, which is when the method picker is shown.
+func pickerModel(t *testing.T) Model {
+	t.Helper()
+	m := newLoginModel(t)
+	return send(t, m, authDoneMsg{attempt: m.authAttempt,
+		err: fmt.Errorf("%w: not signed in to the Azure CLI", auth.ErrNoAzureCLI)})
 }
 
 // signedIn advances a model past the login screen without touching a network.
@@ -121,7 +132,7 @@ func TestStartsOnLoginAndQueriesNothing(t *testing.T) {
 }
 
 func TestLoginOffersBothMethods(t *testing.T) {
-	view := newLoginModel(t).View()
+	view := pickerModel(t).View()
 	for _, want := range []string{"browser", "Azure CLI"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("login screen missing %q", want)
@@ -130,7 +141,7 @@ func TestLoginOffersBothMethods(t *testing.T) {
 }
 
 func TestLoginCursorMoves(t *testing.T) {
-	m := newLoginModel(t)
+	m := pickerModel(t)
 	m.authCursor = authOptionBrowser
 
 	m = send(t, m, press("down"))
@@ -174,7 +185,7 @@ func TestStaleSignInResultIsIgnored(t *testing.T) {
 }
 
 func TestSignInErrorStaysOnLogin(t *testing.T) {
-	m := newLoginModel(t)
+	m := pickerModel(t)
 	m.authAttempt++
 	m = send(t, m, authDoneMsg{attempt: m.authAttempt, err: context.DeadlineExceeded})
 
@@ -183,6 +194,56 @@ func TestSignInErrorStaysOnLogin(t *testing.T) {
 	}
 	if m.err == nil {
 		t.Error("the sign-in error was not recorded")
+	}
+}
+
+func TestStartupTriesTheAzureCLIWithoutAsking(t *testing.T) {
+	// An existing az session is enough to get going; making the user pick it
+	// is asking them to confirm something they already decided.
+	m := newLoginModel(t)
+	if !m.autoSignIn || !m.authing {
+		t.Fatalf("autoSignIn=%v authing=%v, want an unattended attempt in flight",
+			m.autoSignIn, m.authing)
+	}
+	if !strings.Contains(m.View(), "signing in") {
+		t.Error("the login screen does not show the attempt in progress")
+	}
+}
+
+func TestUnattendedFailureFallsBackToThePickerQuietly(t *testing.T) {
+	// "Not signed in to az" is the ordinary reason the attempt fails, and
+	// falling back is the whole point -- so it is not reported as an error.
+	m := pickerModel(t)
+
+	if m.authing || m.autoSignIn {
+		t.Error("the attempt is still marked in flight")
+	}
+	if m.err != nil {
+		t.Errorf("err = %v, want a missing az session handled silently", m.err)
+	}
+	if !strings.Contains(m.View(), "Sign in with your browser") {
+		t.Error("the method picker was not shown")
+	}
+}
+
+func TestUnattendedRealFailureIsReported(t *testing.T) {
+	// Anything other than a missing session is worth showing.
+	m := newLoginModel(t)
+	m = send(t, m, authDoneMsg{attempt: m.authAttempt, err: context.DeadlineExceeded})
+
+	if m.err == nil {
+		t.Error("a genuine sign-in failure was swallowed")
+	}
+}
+
+func TestBrowserMethodSkipsTheUnattendedAttempt(t *testing.T) {
+	res, _ := graph.Lookup("users")
+	m := New(context.Background(), Options{
+		Auth:     auth.Options{TenantID: "organizations", Method: auth.MethodBrowser},
+		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res,
+	})
+	if m.autoSignIn || m.authing {
+		t.Error("-auth browser should go straight to the picker")
 	}
 }
 
@@ -200,10 +261,89 @@ func TestSignInURLIsShownWhenBrowserDoesNotOpen(t *testing.T) {
 
 func TestDashboardListsEveryView(t *testing.T) {
 	view := signedIn(t, newLoginModel(t)).View()
-	for _, want := range []string{"Users", "Groups", "App registrations", "Enterprise apps"} {
+	for _, want := range []string{"Users", "Groups", "App registrations", "Enterprise apps", "Devices"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
+	}
+}
+
+func TestDashboardShowsDirectoryTotals(t *testing.T) {
+	m := signedIn(t, newLoginModel(t))
+	m = send(t, m, countMsg{kind: graph.KindUsers, total: 1707600})
+
+	if got := m.totals[graph.KindUsers]; got != 1707600 {
+		t.Fatalf("total = %d, want it recorded", got)
+	}
+	// Rendered as large numerals, so the digits appear as glyph rows rather
+	// than literal text; check the tile carries the count's shape.
+	view := m.View()
+	if !strings.Contains(view, bigNumber("1,707,600")[0]) {
+		t.Error("the users tile does not show its total")
+	}
+}
+
+func TestDashboardTotalFailureShowsAPlaceholder(t *testing.T) {
+	m := signedIn(t, newLoginModel(t))
+	m = send(t, m, countMsg{kind: graph.KindDevices, err: &graph.APIError{Status: 403}})
+
+	if got := m.totalText(graph.KindDevices); got != "—" {
+		t.Errorf("totalText = %q, want a placeholder", got)
+	}
+	if !strings.Contains(m.View(), "some totals unavailable") {
+		t.Error("the dashboard does not say a total could not be read")
+	}
+}
+
+func TestDashboardCursorMovesInTwoDimensions(t *testing.T) {
+	m := signedIn(t, newLoginModel(t))
+	columns := m.dashboardColumns()
+
+	m = send(t, m, press("right"))
+	if m.dashCursor != 1 {
+		t.Errorf("cursor = %d, want 1 after moving right", m.dashCursor)
+	}
+	m = send(t, m, press("down"))
+	if m.dashCursor != clamp(1+columns, 0, len(graph.All())-1) {
+		t.Errorf("cursor = %d, want a row down", m.dashCursor)
+	}
+	m = send(t, m, press("left"))
+	m = send(t, m, press("up"))
+	if m.dashCursor != 0 {
+		t.Errorf("cursor = %d, want to be back at the first tile", m.dashCursor)
+	}
+}
+
+func TestDashboardDoesNotShowRecentSearches(t *testing.T) {
+	m := signedIn(t, newLoginModel(t))
+	m.history.record(string(graph.KindUsers), "finance")
+
+	if strings.Contains(m.View(), "finance") {
+		t.Error("the dashboard still lists recent searches")
+	}
+}
+
+func TestDevicesViewIsReachable(t *testing.T) {
+	m := send(t, signedIn(t, newLoginModel(t)), press("5"))
+
+	if m.coll.res.Kind != graph.KindDevices {
+		t.Fatalf("view = %s, want devices", m.coll.res.Kind)
+	}
+	m.loading = false
+	m = send(t, m, pageMsg{gen: m.gen, page: &graph.Page{Items: []graph.Item{{
+		"id": "d1", "displayName": "LAPTOP-01", "operatingSystem": "Windows",
+		"operatingSystemVersion": "10.0.22631", "trustType": "AzureAd",
+		"isCompliant": true, "isManaged": true, "accountEnabled": true,
+	}}}})
+
+	view := m.View()
+	for _, want := range []string{"LAPTOP-01", "Windows", "OS", "JOIN TYPE", "COMPLIANT"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("devices table missing %q", want)
+		}
+	}
+	if !strings.Contains(view, "Microsoft Entra joined") {
+		t.Error("trustType was not rendered as a readable join type")
 	}
 }
 
@@ -373,15 +513,37 @@ func TestEscapeClearsSearchBeforeLeavingTheView(t *testing.T) {
 	}
 }
 
-func TestRepeatingTheSameSearchDoesNotRequery(t *testing.T) {
+func TestOpeningSearchStartsFromAnEmptyPattern(t *testing.T) {
+	// The common case is looking for something new; the previous term is one
+	// keystroke away in its quick-search slot.
 	m := browsing(t)
 	m.coll.search = "ada"
 	m.loading = false
 
 	m = send(t, m, press("/"))
-	m = send(t, m, press("enter")) // prompt pre-filled with "ada"
+	if m.input.Value() != "" {
+		t.Errorf("prompt pre-filled with %q, want it cleared", m.input.Value())
+	}
+
+	// Committing the empty prompt therefore clears the search.
+	m = send(t, m, press("enter"))
+	if m.coll.search != "" {
+		t.Errorf("search = %q, want it cleared", m.coll.search)
+	}
+	if !m.loading {
+		t.Error("clearing the search did not requery the unfiltered view")
+	}
+}
+
+func TestReplayingTheActiveSlotDoesNotRequery(t *testing.T) {
+	m := browsing(t)
+	m.history.record(string(graph.KindUsers), "ada")
+	m.coll.search = "ada"
+	m.loading = false
+
+	m = send(t, m, press("1"))
 	if m.loading {
-		t.Error("an unchanged search term triggered a redundant requery")
+		t.Error("replaying the term already in force triggered a redundant requery")
 	}
 }
 
@@ -393,6 +555,7 @@ func TestColonAliasesSwitchViews(t *testing.T) {
 		"groups":  graph.KindGroups,
 		"appregs": graph.KindAppRegistrations,
 		"entapps": graph.KindEnterpriseApps,
+		"devices": graph.KindDevices,
 	} {
 		m := browsing(t)
 		m = send(t, m, press(":"))
@@ -422,10 +585,10 @@ func TestColonDashboardReturnsHome(t *testing.T) {
 func TestUnknownCommandFlashes(t *testing.T) {
 	m := browsing(t)
 	m = send(t, m, press(":"))
-	m = typeKeys(t, m, "devices")
+	m = typeKeys(t, m, "printers")
 	m = send(t, m, press("enter"))
 
-	if !strings.Contains(m.flash, "devices") {
+	if !strings.Contains(m.flash, "printers") {
 		t.Errorf("flash = %q, want it to name the bad command", m.flash)
 	}
 }
@@ -515,22 +678,32 @@ func TestPrefetchTriggersAtTheBottom(t *testing.T) {
 	}
 }
 
-func TestLoadAllStopsAtTheSafetyCap(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Ada")
+func TestScrollingIsTheOnlyWayToLoadMorePages(t *testing.T) {
+	// There is no paging key: reaching the end of the loaded rows fetches
+	// the next page, and there is no way to pull the whole tenant at once.
+	m := loadUsers(t, browsing(t), "Ada", "Bob")
 	m.coll.nextLink = "https://graph.example/next"
-	m.loadAll = true
-	m.autoPages = maxAutoPages
 
-	m = send(t, m, pageMsg{gen: m.gen, append: true, page: &graph.Page{
-		Items:    []graph.Item{{"id": "b", "displayName": "Bob"}},
-		NextLink: "https://graph.example/next2",
-	}})
-
-	if m.loadAll {
-		t.Error("loadAll is still set past the cap")
+	for _, k := range []string{"n", "A"} {
+		got := send(t, m, press(k))
+		if got.loadingMore {
+			t.Errorf("%q triggered a fetch; paging keys should be gone", k)
+		}
 	}
-	if !strings.Contains(m.flash, "stopped after") {
-		t.Errorf("flash = %q, want the cap explained", m.flash)
+
+	view := m.View()
+	for _, gone := range []string{"n/A", "load all"} {
+		if strings.Contains(view, gone) {
+			t.Errorf("the view still advertises %q", gone)
+		}
+	}
+	if !strings.Contains(view, "more below") {
+		t.Error("the frame does not report that more rows exist")
+	}
+
+	// Scrolling to the end still fetches.
+	if !send(t, m, press("G")).loadingMore {
+		t.Error("reaching the last row did not fetch the next page")
 	}
 }
 
@@ -697,9 +870,9 @@ func TestPairKeyOnAUserViewSaysSo(t *testing.T) {
 
 // ------------------------------------------------------------------- misc
 
-func TestYankEmitsClipboardSequence(t *testing.T) {
+func TestCopyEmitsClipboardSequence(t *testing.T) {
 	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("y"))
+	m = send(t, m, press("c"))
 
 	if m.pendingClipboard != "Ada" {
 		t.Errorf("pendingClipboard = %q, want the object id", m.pendingClipboard)
@@ -710,6 +883,15 @@ func TestYankEmitsClipboardSequence(t *testing.T) {
 	m = send(t, m, clipboardSentMsg{})
 	if strings.Contains(m.View(), "\x1b]52;c;") {
 		t.Error("clipboard sequence still emitted after it was sent")
+	}
+}
+
+func TestYankStillWorksForViFingers(t *testing.T) {
+	// "c" is what a newcomer guesses; "y" is what anyone coming from vi or
+	// k9s will press. Both are bound.
+	m := loadUsers(t, browsing(t), "Ada")
+	if got := send(t, m, press("y")); got.pendingClipboard != "Ada" {
+		t.Errorf("pendingClipboard = %q, want y to copy as well", got.pendingClipboard)
 	}
 }
 
@@ -758,9 +940,10 @@ func TestErrorRendersWithItsHint(t *testing.T) {
 
 func TestFlashOnlyClearedByItsOwnTimer(t *testing.T) {
 	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("n"))
+	m = send(t, m, press("enter")) // detail
+	m = send(t, m, press("x"))     // flashes: users have no paired object
 	first := m.flashSeq
-	m = send(t, m, press("n"))
+	m = send(t, m, press("x"))
 
 	m = send(t, m, flashExpiredMsg{seq: first})
 	if m.flash == "" {
@@ -874,5 +1057,22 @@ func TestUserTableShowsTheRequestedColumns(t *testing.T) {
 		if strings.Contains(view, unwanted) {
 			t.Errorf("users table still shows the %s column", unwanted)
 		}
+	}
+}
+
+func TestUnattendedAttemptIsNumberedBeforeInit(t *testing.T) {
+	// Init takes the model by value, so it cannot number the attempt itself:
+	// the increment would be discarded and the reply dropped as stale. This
+	// is the bug that left the login screen spinning forever.
+	m := newLoginModel(t)
+	if m.authAttempt == 0 {
+		t.Fatal("the unattended attempt has no number, so its result will be ignored")
+	}
+
+	// The number New assigned must be the one the reply is accepted under.
+	m.Init()
+	done := send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
+	if done.screen != screenDashboard {
+		t.Errorf("screen = %v, want the sign-in to have been accepted", done.screen)
 	}
 }

@@ -148,16 +148,17 @@ func TestUnknownAuthMethodIsRejected(t *testing.T) {
 }
 
 func TestUnknownViewIsRejected(t *testing.T) {
-	if _, err := Load([]string{"-view", "devices"}, env(nil), io.Discard); err == nil {
+	if _, err := Load([]string{"-view", "printers"}, env(nil), io.Discard); err == nil {
 		t.Fatal("Load accepted an unknown view")
 	}
 }
 
 func TestViewAliasesResolve(t *testing.T) {
 	for alias, want := range map[string]graph.Kind{
-		"groups": graph.KindGroups,
-		"apps":   graph.KindAppRegistrations,
-		"sp":     graph.KindEnterpriseApps,
+		"groups":  graph.KindGroups,
+		"apps":    graph.KindAppRegistrations,
+		"sp":      graph.KindEnterpriseApps,
+		"devices": graph.KindDevices,
 	} {
 		cfg, err := Load([]string{"-view", alias}, env(nil), io.Discard)
 		if err != nil {

@@ -48,7 +48,7 @@ func (m Model) renderDetail() string {
 		hintPairs = append(hintPairs, [2]string{"x", m.pairHint()})
 	}
 	hintPairs = append(hintPairs,
-		[2]string{"y", "yank id"},
+		[2]string{"c", "copy id"},
 		[2]string{"esc", "back"},
 		[2]string{"~", "dashboard"},
 	)

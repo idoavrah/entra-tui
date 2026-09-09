@@ -18,9 +18,9 @@ Status   connected                   [4]                 [9]
 │Ada Liskov           ada.liskov@contoso.com           Member yes     Research      │
 │Barbara Liskov       barbara.liskov@contoso.com       Member yes     Finance       │
 │ןהכ הרש              sara.cohen@contoso.com           Member yes     Security      │
-└───────────────────────────────── more — n / A ────────────────────────────────────┘
+└──────────────────────── more below — scroll to load ──────────────────────────────┘
 
-enter describe · / search · 1-0 recent · : view · n/A more · esc dashboard · ? help
+enter describe · / search · 1-0 recent · : view · r refresh · c copy id · esc dashboard
 ```
 
 
@@ -48,6 +48,13 @@ entra-tui has three levels, and **nothing is queried until you ask for it**:
 3. **A view** — the table. `esc` walks back a level, `~` jumps home from
    anywhere.
 
+The dashboard is a tile grid in the spirit of k9s's pulse screen: one card
+per view, each showing the directory-wide total in large numerals. Totals come
+from Graph's `$count` endpoint, which returns a bare integer for the whole
+collection — the only cheap way to size a directory, since paging one to count
+it would cost thousands of requests. A view you cannot enumerate simply shows
+no number; `r` retries.
+
 ## Signing in
 
 entra-tui only ever acts as **you** — a delegated token, never an app-only
@@ -58,10 +65,12 @@ one. There is no client-secret mode, by design.
 | **Browser** | OAuth 2.0 authorization code + PKCE. A loopback listener starts, your system browser opens the real Entra sign-in page, and the code comes back on the redirect. MFA and Conditional Access work exactly as on the web. If the browser does not open, the URL is shown on screen to copy. |
 | **Azure CLI** | Borrows the Graph token from an existing `az login` session. No prompt at all. |
 
-The login screen preselects the Azure CLI when `az` is on your `PATH`, since
-entra-tui keeps **no token cache on disk** and that saves a browser round trip
-on every launch. `-auth browser` or `-auth azurecli` preselects a method;
-you still confirm it.
+**entra-tui tries the Azure CLI first, without asking.** If `az login` already
+has a session, you land straight on the dashboard; the method picker appears
+only when that fails. An existing session is a decision you already made, and
+entra-tui keeps **no token cache on disk**, so reusing it is what saves a
+browser round trip on every launch. `-auth browser` skips the attempt and goes
+straight to the picker.
 
 ### Which app registration?
 
@@ -94,6 +103,7 @@ entra-tui requests the least-privilege delegated scopes that cover its views:
 | `Group.Read.All` | Groups |
 | `GroupMember.Read.All` | A user's groups, a group's members |
 | `Application.Read.All` | App registrations, enterprise apps, owners, role assignments |
+| `Device.Read.All` | Devices |
 
 It deliberately does **not** ask for `Directory.Read.All`, which would grant
 far more than these views need.
@@ -118,6 +128,7 @@ entra-tui -scopes User.Read.All,Group.Read.All
 | `2` | `:groups` | Groups | `/groups` |
 | `3` | `:appregs` | App registrations | `/applications` |
 | `4` | `:entapps` | Enterprise apps | `/servicePrincipals` |
+| `5` | `:devices` | Devices | `/devices` |
 
 Every view is **sorted by name**. Sorting happens client-side because Graph
 refuses `$orderby` alongside `$search`; doing it here means the order is the
@@ -151,6 +162,9 @@ of any size, where what you are looking for has usually not been paged in yet.
 Every search you run is kept per view in one of ten **fixed slots**, shown as
 two columns in the header and replayed with `1`–`9` and `0`.
 
+The grid is a fixed size and sits beside the wordmark; it does not stretch
+with the terminal.
+
 Slots do not rearrange. A new term takes the next free slot and, once all ten
 are used, overwrites the oldest **in place**; re-running an existing term
 leaves it exactly where it is. A most-recently-used list would reshuffle the
@@ -158,8 +172,10 @@ bar on every search, so the digit that ran `finance` a moment ago would run
 something else next time — which makes the shortcuts useless from memory.
 
 The lists are per-view — the term that finds a person is rarely the term that
-finds an app registration — and the dashboard shows them too. History lives
-for the life of the process; nothing is written to disk.
+finds an app registration. Opening `/` starts from an empty pattern rather
+than the term in force: the common case is looking for something new, and the
+previous term is one keystroke away in its slot. History lives for the life of
+the process; nothing is written to disk.
 
 `esc` clears the search; a second `esc` returns to the dashboard.
 
@@ -191,6 +207,9 @@ well-nested tenant).
 
 **Groups** — Essentials · Membership · **Owners** · **Members** · Mail ·
 On-premises
+
+**Devices** — Essentials · Platform · Compliance & management · Activity ·
+Registered owners · Groups
 
 Label columns size themselves to the longest label present rather than
 wrapping it, and on a wide terminal the sections spread across two columns.
@@ -233,24 +252,37 @@ implemented. **The underlying data is never modified** — only what is drawn.
 | `pgup` / `pgdn`, `g` / `G` | Page, top / bottom |
 | `enter` | Select / describe |
 | `/` | Search the directory |
-| `1`–`9`, `0` | Replay a search slot (open a view, on the dashboard) |
+| `1`–`9`, `0` | Replay a search slot (in a view); open a view (on the dashboard) |
+| `←` `→` | Move between dashboard tiles |
 | `:` | Command prompt (`:users`, `:groups`, `:appregs`, `:entapps`, `:dash`, `:q`) |
 | `esc` | Back one layer: search → view → dashboard |
 | `~` | Dashboard, from anywhere |
 | `x` | App registration ⇄ enterprise app |
 | `R` | Raw JSON (detail view) |
-| `n` / `A` | Load next page / all pages |
 | `r` | Refresh from Graph |
-| `y` | Copy object id (OSC 52, works over SSH) |
+| `c` (or `y`) | Copy object id (OSC 52, works over SSH) |
 | `?` | Help |
 | `q` | Quit |
+
+## When Graph rejects a property
+
+Which properties exist varies with tenant configuration and with the
+collection queried — `servicePrincipal`'s `publisherName` is one that some
+tenants refuse outright, failing the whole request rather than ignoring the
+field.
+
+Rather than shipping a lowest-common-denominator query, entra-tui sends the
+richest one, reads the rejected property out of the error, drops it and
+retries. The property is remembered, so the cost is one extra round trip per
+property per session, and the column simply comes back empty instead of the
+view failing.
 
 ## Paging
 
 entra-tui requests 100 objects per page (`-page-size`) and fetches the next
-page automatically as you approach the bottom. The header reads
-`[loaded of total]`. `A` loads everything remaining, stopping after 50 pages
-so an enormous tenant cannot pin the UI — press `A` again to continue.
+page automatically as you approach the bottom, so scrolling is the whole
+interface: there is no key to page, and no way to pull an entire tenant at
+once. The frame reports `more below — scroll to load` until everything is in.
 
 ## Configuration
 
@@ -264,7 +296,7 @@ Every flag has an environment variable; flags win.
 | `-scopes` | `ENTRA_TUI_SCOPES` | the three read scopes above |
 | `-page-size` | `ENTRA_TUI_PAGE_SIZE` | `100` |
 | `-graph-url` | `ENTRA_TUI_GRAPH_URL` | `https://graph.microsoft.com/v1.0` |
-| `-view` | — | `users` (preselects a dashboard row) |
+| `-view` | — | `users` (preselects a dashboard tile) |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).
 

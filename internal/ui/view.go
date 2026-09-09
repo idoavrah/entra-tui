@@ -27,10 +27,12 @@ const quickSearchRows = quickSearchSlots / 2
 
 // Layout thresholds.
 const (
-	// quickSearchMinWidth is the narrowest middle column that still fits two
-	// readable quick-search columns. Below it the grid is dropped; the digit
-	// keys keep working.
-	quickSearchMinWidth = 40
+	// quickEntryWidth is the fixed width of one quick-search cell. Fixing it
+	// keeps the grid compact and stops the entries drifting apart as the
+	// terminal widens.
+	quickEntryWidth = 21
+	// quickBlockWidth is the whole two-column grid.
+	quickBlockWidth = quickEntryWidth*2 + 2
 	// headerBlockGap separates the header's three blocks.
 	headerBlockGap = 3
 	// contextBlockMaxWidth caps the left block so a long tenant id cannot
@@ -132,8 +134,16 @@ func (m Model) renderHeader() string {
 		logoSpace = logoWidth + headerBlockGap
 	}
 
-	middleWidth := m.width - leftWidth - headerBlockGap - logoSpace
-	quick := m.quickSearchBlock(middleWidth)
+	// The grid is a fixed size and sits hard against the wordmark, rather
+	// than stretching to fill whatever is left: a grid that grows with the
+	// terminal just spreads three short words across half a screen.
+	quick := m.quickSearchBlock()
+	quickSpace := 0
+	if len(quick) > 0 && m.width-logoSpace-quickBlockWidth >= leftWidth+headerBlockGap {
+		quickSpace = quickBlockWidth + headerBlockGap
+	} else {
+		quick = nil
+	}
 
 	lines := make([]string, headerHeight)
 	for i := range headerHeight {
@@ -144,16 +154,12 @@ func (m Model) renderHeader() string {
 			left = ctx[i]
 		}
 		b.WriteString(left)
-		b.WriteString(spaces(leftWidth - lipgloss.Width(left)))
 
-		if len(quick) > 0 {
-			b.WriteString(spaces(headerBlockGap))
-			mid := ""
+		if quickSpace > 0 {
+			b.WriteString(spaces(m.width - logoSpace - quickSpace + headerBlockGap - lipgloss.Width(b.String())))
 			if i < len(quick) {
-				mid = quick[i]
+				b.WriteString(quick[i])
 			}
-			b.WriteString(mid)
-			b.WriteString(spaces(middleWidth - lipgloss.Width(mid)))
 		}
 
 		if showLogo && i < logoHeight {
@@ -196,8 +202,6 @@ func (m Model) statusIndicator() string {
 		return styleWarn.Render(m.spin.View() + " signing in")
 	case m.loading:
 		return styleDim.Render(m.spin.View() + " loading")
-	case m.loadAll:
-		return styleWarn.Render(m.spin.View() + " loading all pages")
 	case m.loadingMore:
 		return styleDim.Render(m.spin.View() + " fetching page")
 	case m.detailLoading:
@@ -209,50 +213,50 @@ func (m Model) statusIndicator() string {
 
 // quickSearchBlock renders this view's search slots as two columns. Slots
 // keep fixed positions, so each digit keeps meaning the same search.
-func (m Model) quickSearchBlock(width int) []string {
-	if m.coll == nil || width < quickSearchMinWidth {
+func (m Model) quickSearchBlock() []string {
+	if m.coll == nil {
 		return nil
 	}
-	slots := m.history.slotsFor(string(m.coll.res.Kind))
+	kind := string(m.coll.res.Kind)
 
 	// Before anything has been searched, ten empty slots are just noise.
-	if len(m.history.list(string(m.coll.res.Kind))) == 0 {
+	if len(m.history.list(kind)) == 0 {
 		lines := make([]string, quickSearchRows)
-		lines[0] = styleDim.Render(graph.Truncate("press / to search this view", width))
+		lines[0] = styleDim.Render("press / to search")
 		return lines
 	}
 
-	columnWidth := (width - 2) / 2
+	slots := m.history.slotsFor(kind)
 	lines := make([]string, quickSearchRows)
 	for r := range quickSearchRows {
-		left := m.quickEntry(slots, r, columnWidth)
-		right := m.quickEntry(slots, r+quickSearchRows, columnWidth)
-		lines[r] = left + "  " + right
+		lines[r] = m.quickEntry(slots, r) + "  " + m.quickEntry(slots, r+quickSearchRows)
 	}
 	return lines
 }
 
 // quickEntry renders one slot as "[n] term", padded to a fixed width so the
 // two columns stay aligned.
-func (m Model) quickEntry(slots []string, index, width int) string {
-	if index >= len(slots) {
-		return spaces(width)
-	}
-	label := styleHintKey.Render("[" + quickDigit(index) + "]")
+func (m Model) quickEntry(slots []string, index int) string {
+	// "[n] " is four cells; the rest is the term. Getting this arithmetic
+	// wrong by one shifts the whole right-hand column.
+	const labelWidth = 4
 
-	term := slots[index]
-	if term == "" {
+	if index >= len(slots) {
+		return spaces(quickEntryWidth)
+	}
+	if term := slots[index]; term == "" {
 		// An unused slot shows its digit and nothing else: the position is
 		// worth advertising, a placeholder glyph is not.
-		return styleDim.Render("["+quickDigit(index)+"]") + spaces(max(0, width-3))
+		return styleDim.Render("["+quickDigit(index)+"]") + spaces(quickEntryWidth-3)
 	}
 
 	style := styleHintDesc
-	if term == m.coll.search {
+	if slots[index] == m.coll.search {
 		style = styleOK
 	}
-	text := graph.Truncate(term, max(1, width-4))
-	return label + style.Render(" "+text) + spaces(max(0, width-3-lipgloss.Width(text)))
+	text := graph.Truncate(slots[index], quickEntryWidth-labelWidth)
+	return styleHintKey.Render("["+quickDigit(index)+"]") + style.Render(" "+text) +
+		spaces(quickEntryWidth-labelWidth-lipgloss.Width(text))
 }
 
 // quickDigit maps a slot index to the key that replays it: 1-9 then 0.
@@ -380,9 +384,8 @@ func (m Model) renderBrowse() string {
 		[2]string{"/", "search"},
 		[2]string{"1-0", "recent"},
 		[2]string{":", "view"},
-		[2]string{"n/A", "more"},
 		[2]string{"r", "refresh"},
-		[2]string{"y", "yank"},
+		[2]string{"c", "copy id"},
 		[2]string{"esc", "dashboard"},
 		[2]string{"?", "help"},
 	)
@@ -408,12 +411,15 @@ func (m Model) tableCaption() string {
 	return strings.Join(parts, styleDim.Render(" · "))
 }
 
-// tableFooterCaption advertises unfetched pages on the frame's bottom edge.
+// tableFooterCaption notes that the view is not fully loaded.
+//
+// There is no key to page: scrolling past the last loaded row fetches the
+// next page, so the caption reports state rather than offering a command.
 func (m Model) tableFooterCaption() string {
 	if !m.coll.hasMore() {
 		return ""
 	}
-	return styleDim.Render("more — n / A")
+	return styleDim.Render("more below — scroll to load")
 }
 
 // emptyMessage explains an empty table, distinguishing "still loading" from
@@ -474,11 +480,10 @@ func (m Model) renderHelp() string {
 		}),
 		"    ",
 		section("DATA", [][2]string{
-			{"n", "load next page"},
-			{"A", "load all pages"},
 			{"r", "refresh from Graph"},
 			{"R", "raw json (detail)"},
-			{"y", "copy object id"},
+			{"c", "copy object id"},
+			{"", "pages load as you scroll"},
 		}),
 	)
 

@@ -23,6 +23,8 @@ func TestLookupResolvesAliasesAndKinds(t *testing.T) {
 		{"sp", KindEnterpriseApps},
 		{"enterprise", KindEnterpriseApps},
 		{"  ent  ", KindEnterpriseApps},
+		{"devices", KindDevices},
+		{"dev", KindDevices},
 	} {
 		got, ok := Lookup(tc.in)
 		if !ok {
@@ -34,8 +36,8 @@ func TestLookupResolvesAliasesAndKinds(t *testing.T) {
 		}
 	}
 
-	if _, ok := Lookup("devices"); ok {
-		t.Error("Lookup(\"devices\") resolved, want not found")
+	if _, ok := Lookup("printers"); ok {
+		t.Error("Lookup(\"printers\") resolved, want not found")
 	}
 }
 
@@ -73,32 +75,35 @@ func TestEveryColumnPropertyIsSelected(t *testing.T) {
 
 func TestSearchExprBuildsGraphSyntax(t *testing.T) {
 	users, _ := Lookup("users")
-	got := users.SearchExpr("ada")
+	got := Query{SearchFields: users.SearchFields, SearchTerm: "ada"}.searchExpr()
 
 	for _, want := range []string{`"displayName:ada"`, `"userPrincipalName:ada"`, " OR "} {
 		if !strings.Contains(got, want) {
-			t.Errorf("SearchExpr = %q, want it to contain %q", got, want)
+			t.Errorf("searchExpr = %q, want it to contain %q", got, want)
 		}
 	}
 }
 
 func TestSearchExprStripsQuotesThatWouldBreakTheQuery(t *testing.T) {
 	users, _ := Lookup("users")
-	got := users.SearchExpr(`ad"a\b`)
+	got := Query{SearchFields: users.SearchFields, SearchTerm: `ad"a\b`}.searchExpr()
 
 	// Exactly two quotes per term -- the delimiters -- and no stray backslash.
 	if strings.Count(got, `\`) != 0 {
-		t.Errorf("SearchExpr = %q, want backslashes stripped", got)
+		t.Errorf("searchExpr = %q, want backslashes stripped", got)
 	}
 	if !strings.Contains(got, `"displayName:adab"`) {
-		t.Errorf("SearchExpr = %q, want the embedded quote removed", got)
+		t.Errorf("searchExpr = %q, want the embedded quote removed", got)
 	}
 }
 
 func TestSearchExprEmptyForBlankTerm(t *testing.T) {
 	users, _ := Lookup("users")
-	if got := users.SearchExpr("   "); got != "" {
-		t.Errorf("SearchExpr(blank) = %q, want empty", got)
+	if got := (Query{SearchFields: users.SearchFields, SearchTerm: "   "}).searchExpr(); got != "" {
+		t.Errorf("searchExpr(blank) = %q, want empty", got)
+	}
+	if got := (Query{SearchTerm: "ada"}).searchExpr(); got != "" {
+		t.Errorf("searchExpr with no fields = %q, want empty", got)
 	}
 }
 

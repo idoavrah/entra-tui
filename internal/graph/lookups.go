@@ -42,6 +42,22 @@ func (c *Client) collect(ctx context.Context, q Query, limit int) ([]Item, bool,
 	return items, page.NextLink != "", nil
 }
 
+// RegisteredOwners lists the users a device is registered to.
+//
+// Devices do not use the "owners" relationship that applications and groups
+// share; theirs is registeredOwners, which is why it needs its own call.
+func (c *Client) RegisteredOwners(ctx context.Context, deviceID string) ([]Item, error) {
+	page, err := c.List(ctx, Query{
+		Path:   fmt.Sprintf("devices/%s/registeredOwners", deviceID),
+		Select: []string{"id", "displayName", "userPrincipalName"},
+		Top:    50,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
 // MemberOf lists the groups and directory roles an object belongs to.
 //
 // This is the direct membership Graph reports for the object, not the

@@ -14,6 +14,7 @@ const (
 	KindGroups           Kind = "groups"
 	KindAppRegistrations Kind = "applications"
 	KindEnterpriseApps   Kind = "servicePrincipals"
+	KindDevices          Kind = "devices"
 )
 
 // Title returns the human name of a collection.
@@ -62,25 +63,6 @@ type Resource struct {
 	Accent string
 }
 
-// SearchExpr renders term into Graph's $search syntax across SearchFields,
-// e.g. `"displayName:ada" OR "mail:ada"`.
-//
-// Double quotes and backslashes are stripped rather than escaped: Graph's
-// search grammar has no escape sequence for them inside a quoted term, so
-// removing them is the only way to keep a user's stray quote from producing
-// a malformed query.
-func (r Resource) SearchExpr(term string) string {
-	term = strings.TrimSpace(strings.NewReplacer(`"`, "", `\`, "").Replace(term))
-	if term == "" || len(r.SearchFields) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(r.SearchFields))
-	for _, f := range r.SearchFields {
-		parts = append(parts, fmt.Sprintf("%q", f+":"+term))
-	}
-	return strings.Join(parts, " OR ")
-}
-
 // Row renders one item into cell strings, one per column.
 func (r Resource) Row(i Item) []string {
 	cells := make([]string, len(r.Columns))
@@ -92,7 +74,10 @@ func (r Resource) Row(i Item) []string {
 
 // All returns the browsable resources in display order.
 func All() []Resource {
-	return []Resource{usersResource(), groupsResource(), appRegistrationsResource(), enterpriseAppsResource()}
+	return []Resource{
+		usersResource(), groupsResource(), appRegistrationsResource(),
+		enterpriseAppsResource(), devicesResource(),
+	}
 }
 
 // Lookup resolves a resource by kind, title or alias, case-insensitively.
@@ -109,6 +94,54 @@ func Lookup(name string) (Resource, bool) {
 		}
 	}
 	return Resource{}, false
+}
+
+func devicesResource() Resource {
+	return Resource{
+		Kind:        KindDevices,
+		Title:       "Devices",
+		Description: "Registered and joined devices",
+		Aliases:     []string{"devices", "device", "dev", "d"},
+		Path:        "/devices",
+		Select: []string{
+			"id", "deviceId", "displayName", "operatingSystem", "operatingSystemVersion",
+			"trustType", "isCompliant", "isManaged", "accountEnabled", "profileType",
+			"manufacturer", "model", "registrationDateTime", "approximateLastSignInDateTime",
+			"onPremisesSyncEnabled", "enrollmentType",
+		},
+		OrderBy:      "displayName",
+		SearchFields: []string{"displayName"},
+		Accent:       "#7dcfff",
+		Columns: []Column{
+			{Title: "NAME", MinWidth: 16, Weight: 4, Value: func(i Item) string { return i.String("displayName") }},
+			{Title: "OS", MinWidth: 10, Weight: 1, Value: func(i Item) string { return i.String("operatingSystem") }},
+			{Title: "VERSION", MinWidth: 10, Weight: 1, Value: func(i Item) string { return i.String("operatingSystemVersion") }},
+			{Title: "JOIN TYPE", MinWidth: 16, Weight: 1, Value: TrustType},
+			{Title: "COMPLIANT", MinWidth: 9, Value: func(i Item) string { return YesNo(i, "isCompliant") }},
+			{Title: "MANAGED", MinWidth: 7, Value: func(i Item) string { return YesNo(i, "isManaged") }},
+			{Title: "ENABLED", MinWidth: 7, Value: func(i Item) string { return YesNo(i, "accountEnabled") }},
+			{Title: "LAST SEEN", MinWidth: 9, Value: func(i Item) string {
+				return AgeOf(i, "approximateLastSignInDateTime")
+			}},
+		},
+	}
+}
+
+// TrustType renders Graph's device trust constants as the join types the
+// Entra portal names them by.
+func TrustType(i Item) string {
+	switch i.String("trustType") {
+	case "AzureAd":
+		return "Microsoft Entra joined"
+	case "ServerAd":
+		return "Hybrid joined"
+	case "Workplace":
+		return "Registered"
+	case "":
+		return ""
+	default:
+		return i.String("trustType")
+	}
 }
 
 func usersResource() Resource {
@@ -237,8 +270,10 @@ func enterpriseAppsResource() Resource {
 			"homepage", "tags", "appOwnerOrganizationId", "createdDateTime",
 			"loginUrl", "preferredSingleSignOnMode", "servicePrincipalNames",
 		},
-		OrderBy:      "displayName",
-		SearchFields: []string{"displayName", "publisherName"},
+		OrderBy: "displayName",
+		// publisherName is not searchable on servicePrincipals in every
+		// tenant, and an unsearchable field fails the whole query.
+		SearchFields: []string{"displayName"},
 		Accent:       "#bb9af7",
 		Columns: []Column{
 			{Title: "NAME", MinWidth: 16, Weight: 4, Value: func(i Item) string { return i.String("displayName") }},

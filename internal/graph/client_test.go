@@ -64,7 +64,10 @@ func TestBuildURLDropsOrderByWhenSearching(t *testing.T) {
 	// Graph rejects $orderby combined with $search on directory collections,
 	// so the client must drop the ordering rather than let the request 400.
 	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
-	raw := c.buildURL(Query{Path: "/users", OrderBy: "displayName", Search: `"displayName:ada"`})
+	raw := c.buildURL(Query{
+		Path: "/users", OrderBy: "displayName",
+		SearchFields: []string{"displayName"}, SearchTerm: "ada",
+	})
 
 	u, _ := url.Parse(raw)
 	if got := u.Query().Get("$orderby"); got != "" {
@@ -257,10 +260,180 @@ func TestNeedsAdvancedQuery(t *testing.T) {
 	}{
 		{"plain", Query{Path: "/users"}, false},
 		{"count", Query{Path: "/users", Count: true}, true},
-		{"search", Query{Path: "/users", Search: `"displayName:a"`}, true},
+		{"search", Query{Path: "/users", SearchFields: []string{"displayName"}, SearchTerm: "a"}, true},
+		{"search with no fields", Query{Path: "/users", SearchTerm: "a"}, false},
 	} {
 		if got := tc.q.NeedsAdvancedQuery(); got != tc.want {
 			t.Errorf("%s: NeedsAdvancedQuery() = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestListDropsAPropertyTheTenantRejects(t *testing.T) {
+	// The failure reported from a real tenant: servicePrincipal's
+	// publisherName is not a declared property there, and Graph rejects the
+	// whole request rather than ignoring the field.
+	var selects []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/servicePrincipals", func(w http.ResponseWriter, r *http.Request) {
+		sel := r.URL.Query().Get("$select")
+		selects = append(selects, sel)
+		if strings.Contains(sel, "publisherName") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"Request_UnsupportedQuery","message":` +
+				`"Property 'publisherName' does not exist as a declared property or extension property."}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"value": []map[string]any{{"id": "sp1"}}})
+	})
+	c, _ := newTestClient(t, mux)
+
+	page, err := c.List(context.Background(), Query{
+		Path:   "/servicePrincipals",
+		Select: []string{"id", "displayName", "publisherName"},
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Errorf("got %d items, want 1", len(page.Items))
+	}
+	if len(selects) != 2 {
+		t.Fatalf("server saw %d attempts, want 2 (rejected then pruned)", len(selects))
+	}
+	if !strings.Contains(selects[1], "displayName") {
+		t.Errorf("retry $select = %q, want the other properties kept", selects[1])
+	}
+}
+
+func TestRejectedPropertyIsRememberedForLaterQueries(t *testing.T) {
+	// Paying one round trip per property is acceptable; paying it on every
+	// request is not.
+	var attempts int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/servicePrincipals", func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if strings.Contains(r.URL.Query().Get("$select"), "publisherName") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"Request_UnsupportedQuery","message":` +
+				`"Property 'publisherName' does not exist as a declared property or extension property."}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"value": []map[string]any{}})
+	})
+	c, _ := newTestClient(t, mux)
+
+	q := Query{Path: "/servicePrincipals", Select: []string{"id", "publisherName"}}
+	for range 3 {
+		if _, err := c.List(context.Background(), q); err != nil {
+			t.Fatalf("List: %v", err)
+		}
+	}
+	if attempts != 4 {
+		t.Errorf("server saw %d requests over 3 calls, want 4 (one wasted, then never again)", attempts)
+	}
+}
+
+func TestUnsearchablePropertyIsDroppedFromSearch(t *testing.T) {
+	var searches []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/servicePrincipals", func(w http.ResponseWriter, r *http.Request) {
+		search := r.URL.Query().Get("$search")
+		searches = append(searches, search)
+		if strings.Contains(search, "publisherName") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"Request_UnsupportedQuery","message":` +
+				`"Property 'publisherName' does not exist as a declared property or extension property."}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"value": []map[string]any{}})
+	})
+	c, _ := newTestClient(t, mux)
+
+	if _, err := c.List(context.Background(), Query{
+		Path:         "/servicePrincipals",
+		SearchFields: []string{"displayName", "publisherName"},
+		SearchTerm:   "contoso",
+	}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(searches) != 2 {
+		t.Fatalf("server saw %d attempts, want 2", len(searches))
+	}
+	if !strings.Contains(searches[1], "displayName:contoso") {
+		t.Errorf("retry $search = %q, want the searchable field kept", searches[1])
+	}
+}
+
+func TestUnrelatedBadRequestIsNotRetried(t *testing.T) {
+	// A property complaint about something the query does not ask for cannot
+	// be fixed by dropping anything, and must not loop.
+	var attempts int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/users", func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":"Request_UnsupportedQuery","message":` +
+			`"Property 'somethingElse' does not exist as a declared property or extension property."}}`))
+	})
+	c, _ := newTestClient(t, mux)
+
+	if _, err := c.List(context.Background(), Query{Path: "/users", Select: []string{"id"}}); err == nil {
+		t.Fatal("List returned nil error")
+	}
+	if attempts != 1 {
+		t.Errorf("server saw %d attempts, want exactly 1", attempts)
+	}
+}
+
+func TestUnsupportedPropertyExtraction(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+		ok   bool
+	}{
+		{"graph wording", &APIError{Status: 400, Message: "Property 'publisherName' does not exist as a declared property or extension property."}, "publisherName", true},
+		{"lowercase", &APIError{Status: 400, Message: "property 'foo' does not exist"}, "foo", true},
+		{"not a 400", &APIError{Status: 403, Message: "Property 'x' does not exist"}, "", false},
+		{"different 400", &APIError{Status: 400, Message: "Invalid filter clause"}, "", false},
+	} {
+		got, ok := unsupportedProperty(tc.err)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("%s: unsupportedProperty = %q,%v want %q,%v", tc.name, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestCountReadsThePlainIntegerEndpoint(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/users/$count", func(w http.ResponseWriter, r *http.Request) {
+		// $count is refused without the eventual consistency level.
+		if r.Header.Get("ConsistencyLevel") != "eventual" {
+			t.Errorf("ConsistencyLevel = %q, want eventual", r.Header.Get("ConsistencyLevel"))
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("1707600\n"))
+	})
+	c, _ := newTestClient(t, mux)
+
+	got, err := c.Count(context.Background(), "/users")
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if got != 1707600 {
+		t.Errorf("Count = %d, want 1707600", got)
+	}
+}
+
+func TestCountReportsAnUnparseableBody(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/users/$count", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not a number"))
+	})
+	c, _ := newTestClient(t, mux)
+
+	if _, err := c.Count(context.Background(), "/users"); err == nil {
+		t.Fatal("Count accepted a non-numeric body")
 	}
 }

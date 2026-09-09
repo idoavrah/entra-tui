@@ -5,7 +5,20 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/idoavrah/entra-tui/internal/graph"
+)
+
+// Dashboard tile geometry.
+const (
+	tileGap = 2
+	// tileBodyHeight is the big number plus the description line.
+	tileBodyHeight = bigDigitHeight + 1
+	// Column-count thresholds, measured against the frame's inner width.
+	threeColumnDashboard = 132
+	twoColumnDashboard   = 88
+	// tileMinWidth keeps a tile wide enough for a seven-digit count.
+	tileMinWidth = 34
 )
 
 // dashboardIndexOf finds a resource's position on the dashboard.
@@ -20,6 +33,8 @@ func dashboardIndexOf(kind graph.Kind) int {
 
 func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	all := graph.All()
+	columns := m.dashboardColumns()
+
 	switch {
 	case key.Matches(msg, keys.Quit):
 		m.quitting = true
@@ -30,62 +45,175 @@ func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.Command):
 		return m.openPrompt(modeCommand, "")
+	case key.Matches(msg, keys.Refresh):
+		return m, m.loadTotals()
+
+	// The tiles are a grid, so the cursor moves in two dimensions.
 	case key.Matches(msg, keys.Up):
-		m.dashCursor = clamp(m.dashCursor-1, 0, len(all)-1)
+		m.dashCursor = clamp(m.dashCursor-columns, 0, len(all)-1)
 		return m, nil
 	case key.Matches(msg, keys.Down):
+		m.dashCursor = clamp(m.dashCursor+columns, 0, len(all)-1)
+		return m, nil
+	case key.Matches(msg, keys.Left):
+		m.dashCursor = clamp(m.dashCursor-1, 0, len(all)-1)
+		return m, nil
+	case key.Matches(msg, keys.Right):
 		m.dashCursor = clamp(m.dashCursor+1, 0, len(all)-1)
 		return m, nil
+
 	case key.Matches(msg, keys.Enter):
 		return m.openResource(all[m.dashCursor])
 	}
+
 	if n, ok := digitIndex(msg.String()); ok && n < len(all) {
 		return m.openResource(all[n])
 	}
 	return m, nil
 }
 
+// dashboardColumns is how many tiles fit across.
+func (m Model) dashboardColumns() int {
+	inner := boxInnerWidth(m.width)
+	switch {
+	case inner >= threeColumnDashboard:
+		return 3
+	case inner >= twoColumnDashboard:
+		return 2
+	default:
+		return 1
+	}
+}
+
 func (m Model) renderDashboard() string {
-	var b strings.Builder
+	all := graph.All()
+	columns := m.dashboardColumns()
+	inner := boxInnerWidth(m.width)
+	tileWidth := max(tileMinWidth, (inner-(columns-1)*tileGap)/columns)
 
-	for i, res := range graph.All() {
-		marker := "  "
-		title := styleContextVal.Render(res.Title)
-		if i == m.dashCursor {
-			marker = styleHintKey.Render("▸ ")
-			title = accentStyle(res.Accent).Render(res.Title)
-		}
-		alias := ":" + res.Aliases[0]
-		b.WriteString(marker +
-			styleHintKey.Render(itoa(i+1)+". ") + title +
-			styleDim.Render("   "+alias) + "\n")
-		b.WriteString("     " + styleDim.Render(res.Description) + "\n")
+	var body []string
+	for start := 0; start < len(all); start += columns {
+		end := min(start+columns, len(all))
 
-		// Show this view's recent searches so a repeat lookup is one key away
-		// even before the view is open.
-		if recent := m.history.list(string(res.Kind)); len(recent) > 0 {
-			b.WriteString("     " + styleHintDesc.Render("recent: "+
-				graph.Truncate(strings.Join(recent, " · "), max(20, m.width-14))) + "\n")
+		row := make([][]string, 0, columns)
+		for i := start; i < end; i++ {
+			row = append(row, m.renderTile(all[i], i, tileWidth))
 		}
-		b.WriteString("\n")
+		body = append(body, joinTilesAcross(row, tileWidth)...)
+		body = append(body, "")
 	}
 
-	b.WriteString(styleDim.Render(
-		"Nothing is fetched until you open a view. Every request is a read.") + "\n")
-
 	if m.err != nil {
-		b.WriteString("\n" + styleErr.Render("✗ "+m.err.Error()) + "\n")
+		body = append(body, styleErr.Render("✗ "+m.err.Error()))
 	}
 
 	hints := hintBar(m.width,
-		[2]string{"↑/↓", "choose"},
+		[2]string{"↑↓←→", "choose"},
 		[2]string{"enter", "open"},
-		[2]string{"1-4", "open directly"},
+		[2]string{"1-5", "open directly"},
+		[2]string{"r", "refresh totals"},
 		[2]string{":", "command"},
 		[2]string{"?", "help"},
 		[2]string{"q", "quit"},
 	)
+	return m.chrome(styleHelpTitle.Render("DIRECTORY"), m.totalsCaption(), body, hints)
+}
 
-	return m.chrome(styleHelpTitle.Render("VIEWS"), "",
-		strings.Split(b.String(), "\n"), hints)
+// totalsCaption reports on the count queries along the frame's bottom edge.
+func (m Model) totalsCaption() string {
+	if len(m.totalErrs) > 0 {
+		return styleWarn.Render("some totals unavailable — r retries")
+	}
+	if len(m.totals) < len(graph.All()) {
+		return styleDim.Render(m.spin.View() + " counting")
+	}
+	return styleDim.Render("totals from Microsoft Graph — r refreshes")
+}
+
+// renderTile draws one resource as a bordered card: its name and key on the
+// border, its total in large numerals, and what it holds underneath.
+func (m Model) renderTile(res graph.Resource, index, width int) []string {
+	selected := index == m.dashCursor
+
+	accent := accentStyle(res.Accent)
+	border := styleBorder
+	if selected {
+		border = accent
+	}
+
+	caption := styleHintKey.Render(itoa(index+1)) + styleDim.Render(" · ") + accent.Render(res.Title)
+	inner := max(1, width-2)
+
+	lines := []string{tileBorder(width, caption, border, boxTopLeft, boxTopRight)}
+
+	number := bigNumber(m.totalText(res.Kind))
+	numberStyle := accent
+	if _, failed := m.totalErrs[res.Kind]; failed {
+		numberStyle = styleDim
+	}
+	for _, l := range number {
+		lines = append(lines, tileRow(inner, " "+numberStyle.Render(l), border))
+	}
+	lines = append(lines, tileRow(inner, " "+styleDim.Render(graph.Truncate(res.Description, inner-2)), border))
+	lines = append(lines, tileBorder(width, "", border, boxBottomLeft, boxBottomRight))
+	return lines
+}
+
+// totalText is the count to display, or a placeholder while it is unknown.
+func (m Model) totalText(kind graph.Kind) string {
+	if _, failed := m.totalErrs[kind]; failed {
+		return "—"
+	}
+	total, ok := m.totals[kind]
+	if !ok {
+		return "—"
+	}
+	return formatInt(int(total))
+}
+
+// tileBorder draws a tile's top or bottom edge in the given style.
+func tileBorder(width int, caption string, style lipgloss.Style, left, right string) string {
+	inner := max(1, width-2)
+	if lipgloss.Width(caption) == 0 || lipgloss.Width(caption)+2 > inner {
+		return style.Render(left + strings.Repeat(boxHorizontal, inner) + right)
+	}
+	return style.Render(left+boxHorizontal) + " " + caption + " " +
+		style.Render(strings.Repeat(boxHorizontal, inner-lipgloss.Width(caption)-3)+right)
+}
+
+// tileRow frames one line of a tile's body.
+func tileRow(inner int, content string, style lipgloss.Style) string {
+	if pad := inner - lipgloss.Width(content); pad > 0 {
+		content += spaces(pad)
+	}
+	return style.Render(boxVertical) + content + style.Render(boxVertical)
+}
+
+// joinTilesAcross places a row of equal-height tiles side by side.
+func joinTilesAcross(tiles [][]string, tileWidth int) []string {
+	if len(tiles) == 0 {
+		return nil
+	}
+	height := 0
+	for _, t := range tiles {
+		height = max(height, len(t))
+	}
+
+	out := make([]string, height)
+	for row := range height {
+		var b strings.Builder
+		for i, tile := range tiles {
+			if i > 0 {
+				b.WriteString(spaces(tileGap))
+			}
+			line := ""
+			if row < len(tile) {
+				line = tile[row]
+			}
+			b.WriteString(line)
+			b.WriteString(spaces(tileWidth - lipgloss.Width(line)))
+		}
+		out[row] = strings.TrimRight(b.String(), " ")
+	}
+	return out
 }

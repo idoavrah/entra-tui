@@ -94,6 +94,8 @@ func Sections(d Detail) []Section {
 		return userSections(d)
 	case KindGroups:
 		return groupSections(d)
+	case KindDevices:
+		return deviceSections(d)
 	default:
 		return []Section{{Title: "Properties", Fields: allFields(d.Object, nil)}}
 	}
@@ -280,6 +282,53 @@ func shortError(err error) string {
 		return fmt.Sprintf("HTTP %d", api.Status)
 	}
 	return err.Error()
+}
+
+func deviceSections(d Detail) []Section {
+	o := d.Object
+	used := newFieldSet()
+
+	essentials := Section{Title: "Essentials", Fields: fields(o, used,
+		f("Display name", "displayName"),
+		f("Device ID", "deviceId"),
+		f("Object ID", "id"),
+		fn("Join type", TrustType, "trustType"),
+		fn("Enabled", func(i Item) string { return YesNo(i, "accountEnabled") }, "accountEnabled"),
+		f("Profile type", "profileType"),
+	)}
+
+	platform := Section{Title: "Platform", Fields: fields(o, used,
+		f("Operating system", "operatingSystem"),
+		f("Version", "operatingSystemVersion"),
+		f("Manufacturer", "manufacturer"),
+		f("Model", "model"),
+	)}
+
+	compliance := Section{Title: "Compliance & management", Fields: fields(o, used,
+		fn("Compliant", func(i Item) string { return YesNo(i, "isCompliant") }, "isCompliant"),
+		fn("Managed", func(i Item) string { return YesNo(i, "isManaged") }, "isManaged"),
+		f("Enrollment type", "enrollmentType"),
+		f("Management type", "managementType"),
+		fn("Synced from on-premises", func(i Item) string {
+			return YesNo(i, "onPremisesSyncEnabled")
+		}, "onPremisesSyncEnabled"),
+	)}
+
+	activity := Section{Title: "Activity", Fields: fields(o, used,
+		fn("Registered", func(i Item) string { return dateWithAge(i, "registrationDateTime") }, "registrationDateTime"),
+		fn("Last sign-in", func(i Item) string {
+			return dateWithAge(i, "approximateLastSignInDateTime")
+		}, "approximateLastSignInDateTime"),
+	)}
+
+	owners := ownersSection(d)
+	owners.Title = "Registered owners"
+	if len(owners.Fields) == 0 && d.OwnersErr == nil {
+		owners.Note = "This device has no registered owner."
+	}
+
+	return compact(essentials, platform, compliance, activity, owners, groupsSection(d),
+		Section{Title: "Other properties", Fields: allFields(o, used)})
 }
 
 func appRegistrationSections(d Detail) []Section {

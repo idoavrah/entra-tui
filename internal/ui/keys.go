@@ -7,6 +7,8 @@ import "github.com/charmbracelet/bubbles/key"
 type keyMap struct {
 	Up        key.Binding
 	Down      key.Binding
+	Left      key.Binding
+	Right     key.Binding
 	PageUp    key.Binding
 	PageDown  key.Binding
 	Home      key.Binding
@@ -16,10 +18,8 @@ type keyMap struct {
 	Dashboard key.Binding
 	Command   key.Binding
 	Search    key.Binding
-	NextPage  key.Binding
-	LoadAll   key.Binding
 	Refresh   key.Binding
-	Yank      key.Binding
+	Copy      key.Binding
 	RawToggle key.Binding
 	Pair      key.Binding
 	Help      key.Binding
@@ -29,6 +29,8 @@ type keyMap struct {
 var keys = keyMap{
 	Up:       key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 	Down:     key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
+	Left:     key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "left")),
+	Right:    key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "right")),
 	PageUp:   key.NewBinding(key.WithKeys("pgup", "ctrl+b"), key.WithHelp("pgup", "page up")),
 	PageDown: key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
 	Home:     key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "top")),
@@ -40,10 +42,10 @@ var keys = keyMap{
 	Dashboard: key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "dashboard")),
 	Command:   key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "command")),
 	Search:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
-	NextPage:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next page")),
-	LoadAll:   key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "load all")),
 	Refresh:   key.NewBinding(key.WithKeys("r", "ctrl+r"), key.WithHelp("r", "refresh")),
-	Yank:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yank id")),
+	// "c" for copy is what someone guesses first; "y" stays bound because
+	// vi's yank is what the fingers of anyone coming from k9s will reach for.
+	Copy:      key.NewBinding(key.WithKeys("c", "y"), key.WithHelp("c", "copy id")),
 	RawToggle: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "raw json")),
 	// x jumps between an app registration and its enterprise application,
 	// which are two halves of the same thing in Entra.

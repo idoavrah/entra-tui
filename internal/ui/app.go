@@ -42,10 +42,6 @@ const (
 // page boundary.
 const prefetchRows = 10
 
-// maxAutoPages caps a single "load all" so an unbounded tenant cannot pin the
-// UI fetching forever. The user can press A again to continue.
-const maxAutoPages = 50
-
 // Options configures the root model.
 type Options struct {
 	Auth     auth.Options
@@ -76,9 +72,18 @@ type Model struct {
 	identity    auth.Identity
 	client      *graph.Client
 	authAttempt int
+	// autoSignIn marks the unattended Azure CLI attempt made at startup. If
+	// it fails the picker is shown, without treating "not signed in to az" as
+	// an error worth reporting.
+	autoSignIn bool
 
 	// --- dashboard ----------------------------------------------------
 	dashCursor int
+	// totals are directory-wide object counts, read from the $count
+	// endpoint. A missing entry has not arrived; an entry in totalErrs
+	// could not be read.
+	totals    map[graph.Kind]int64
+	totalErrs map[graph.Kind]error
 
 	// --- browse -------------------------------------------------------
 	coll   *collection
@@ -92,8 +97,6 @@ type Model struct {
 	gen         int
 	loading     bool
 	loadingMore bool
-	loadAll     bool
-	autoPages   int
 	history     *searchHistory
 
 	// --- detail -------------------------------------------------------
@@ -135,8 +138,21 @@ func New(ctx context.Context, opts Options) Model {
 		screen:    screenLogin,
 		authURLCh: make(chan string, 1),
 		history:   newSearchHistory(),
+		totals:    map[graph.Kind]int64{},
+		totalErrs: map[graph.Kind]error{},
 		input:     ti,
 		spin:      sp,
+	}
+	// An existing `az login` is enough to get going, so use it rather than
+	// making the user choose something they have already chosen. The picker
+	// appears only if that fails, or if the browser was asked for explicitly.
+	if opts.Auth.Method != auth.MethodBrowser {
+		m.autoSignIn = true
+		m.authing = true
+		// The attempt is numbered here, not in Init: Init takes the model by
+		// value, so an increment there would be discarded and the reply
+		// dropped as stale.
+		m.authAttempt = 1
 	}
 	// Preselect the option that will not need a browser round trip.
 	if auth.AzureCLIAvailable() {
@@ -151,9 +167,14 @@ func New(ctx context.Context, opts Options) Model {
 	return m
 }
 
-// Init starts the spinner and the listener for the sign-in URL.
+// Init starts the spinner, the listener for the sign-in URL, and the
+// unattended Azure CLI sign-in when one is worth trying.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, waitForAuthURL(m.authURLCh))
+	cmds := []tea.Cmd{m.spin.Tick, waitForAuthURL(m.authURLCh)}
+	if m.autoSignIn {
+		cmds = append(cmds, m.authenticate(auth.MethodAzureCLI))
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update is the Bubble Tea event loop.
@@ -205,11 +226,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pairMsg:
 		return m.handlePair(msg)
 
+	case countMsg:
+		// Counts are keyed by view and idempotent, so they are accepted
+		// whenever they land rather than being tied to a request generation.
+		return m.handleCount(msg)
+
 	case errMsg:
 		if msg.gen != m.gen {
 			return m, nil
 		}
-		m.loading, m.loadingMore, m.loadAll, m.detailLoading = false, false, false, false
+		m.loading, m.loadingMore, m.detailLoading = false, false, false
 		m.err = msg.err
 		return m, nil
 
@@ -227,15 +253,37 @@ func (m Model) handleAuthDone(msg authDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.authing = false
 	m.authURL = ""
+
 	if msg.err != nil {
+		auto := m.autoSignIn
+		m.autoSignIn = false
+		// A missing or signed-out Azure CLI is the ordinary reason the
+		// unattended attempt fails. Falling back to the picker is the whole
+		// point, so it is not reported as an error.
+		if auto && errors.Is(msg.err, auth.ErrNoAzureCLI) {
+			return m, nil
+		}
 		m.err = msg.err
 		return m, nil
 	}
+
+	m.autoSignIn = false
 	m.err = nil
 	m.provider = msg.provider
 	m.identity = msg.provider.Identity()
 	m.client = graph.New(msg.provider, graph.WithBaseURL(m.opts.GraphURL))
 	m.screen = screenDashboard
+	return m, m.loadTotals()
+}
+
+// handleCount records a directory total for the dashboard.
+func (m Model) handleCount(msg countMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.totalErrs[msg.kind] = msg.err
+		return m, nil
+	}
+	delete(m.totalErrs, msg.kind)
+	m.totals[msg.kind] = msg.total
 	return m, nil
 }
 
@@ -266,18 +314,6 @@ func (m Model) handlePage(msg pageMsg) (tea.Model, tea.Cmd) {
 		m.cursor = idx
 	}
 	m.clampCursor()
-
-	if m.loadAll && m.coll.hasMore() {
-		if m.autoPages >= maxAutoPages {
-			m.loadAll = false
-			return m, m.flashFor(fmt.Sprintf("stopped after %d pages (%d objects) — press A to continue",
-				m.autoPages, m.coll.len()))
-		}
-		m.autoPages++
-		m.loadingMore = true
-		return m, m.loadNext()
-	}
-	m.loadAll = false
 	return m, nil
 }
 
@@ -344,7 +380,10 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openPrompt(modeCommand, "")
 
 	case key.Matches(msg, keys.Search):
-		return m.openPrompt(modeSearch, m.coll.search)
+		// Opening search starts empty: the common case is looking for
+		// something new, and the previous term is a keystroke away in its
+		// quick-search slot.
+		return m.openPrompt(modeSearch, "")
 
 	case key.Matches(msg, keys.Dashboard):
 		return m.toDashboard()
@@ -364,14 +403,8 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Refresh):
 		return m.reload()
 
-	case key.Matches(msg, keys.NextPage):
-		return m.fetchMore(false)
-
-	case key.Matches(msg, keys.LoadAll):
-		return m.fetchMore(true)
-
-	case key.Matches(msg, keys.Yank):
-		return m.yankCurrentID()
+	case key.Matches(msg, keys.Copy):
+		return m.copyCurrentID()
 
 	case key.Matches(msg, keys.Up):
 		return m.moveCursor(-1)
@@ -418,8 +451,8 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.Pair):
 		return m.jumpToPair()
-	case key.Matches(msg, keys.Yank):
-		return m.yankCurrentID()
+	case key.Matches(msg, keys.Copy):
+		return m.copyCurrentID()
 	case key.Matches(msg, keys.Help):
 		m.helpReturn = m.screen
 		m.screen = screenHelp
@@ -528,8 +561,7 @@ func (m Model) openResource(res graph.Resource) (tea.Model, tea.Cmd) {
 	m.gen++
 	m.coll = newCollection(res)
 	m.cursor, m.offset = 0, 0
-	m.loading, m.loadingMore, m.loadAll = true, false, false
-	m.autoPages = 0
+	m.loading, m.loadingMore = true, false
 	m.err = nil
 	m.screen = screenBrowse
 	m.dashCursor = dashboardIndexOf(res.Kind)
@@ -544,10 +576,10 @@ func (m Model) toDashboard() (tea.Model, tea.Cmd) {
 	// Bumping the generation drops any page still in flight, so a reply for
 	// the view just left cannot repopulate it behind the dashboard.
 	m.gen++
-	m.loading, m.loadingMore, m.loadAll = false, false, false
+	m.loading, m.loadingMore = false, false
 	m.screen = screenDashboard
 	m.err = nil
-	return m, nil
+	return m, m.loadTotals()
 }
 
 // reload re-runs the current query from page one.
@@ -560,26 +592,9 @@ func (m Model) reload() (tea.Model, tea.Cmd) {
 	m.coll = newCollection(m.coll.res)
 	m.coll.search = search
 	m.cursor, m.offset = 0, 0
-	m.loading, m.loadingMore, m.loadAll = true, false, false
-	m.autoPages = 0
+	m.loading, m.loadingMore = true, false
 	m.err = nil
 	return m, m.loadFirst()
-}
-
-// fetchMore pulls the next page, or every remaining page when all is set.
-func (m Model) fetchMore(all bool) (tea.Model, tea.Cmd) {
-	if m.loading || m.loadingMore {
-		return m, nil
-	}
-	if !m.coll.hasMore() {
-		return m, m.flashFor("all objects loaded")
-	}
-	m.loadingMore = true
-	m.loadAll = all
-	if all {
-		m.autoPages = 1
-	}
-	return m, m.loadNext()
 }
 
 func (m Model) openDetail() (tea.Model, tea.Cmd) {
@@ -648,7 +663,7 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	return m, m.loadDetail(res, c.ID)
 }
 
-func (m Model) yankCurrentID() (tea.Model, tea.Cmd) {
+func (m Model) copyCurrentID() (tea.Model, tea.Cmd) {
 	var id string
 	if m.screen == screenDetail {
 		id = m.detailID

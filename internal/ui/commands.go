@@ -65,6 +65,13 @@ type pairMsg struct {
 	err         error
 }
 
+// countMsg carries one view's directory-wide object total.
+type countMsg struct {
+	kind  graph.Kind
+	total int64
+	err   error
+}
+
 // flashExpiredMsg clears a transient status message.
 type flashExpiredMsg struct{ seq int }
 
@@ -123,7 +130,7 @@ func (m *Model) query() graph.Query {
 		Count: true,
 	}
 	if m.coll.search != "" {
-		q.Search = res.SearchExpr(m.coll.search)
+		q.SearchFields, q.SearchTerm = res.SearchFields, m.coll.search
 	}
 	return q
 }
@@ -204,6 +211,38 @@ func isBadRequest(err error) bool {
 	return errors.As(err, &api) && api.Status == http.StatusBadRequest
 }
 
+// ------------------------------------------------------------------ totals
+
+// countTimeout bounds a single $count call. The dashboard is usable without
+// its numbers, so a slow tenant should not hold it up for long.
+const countTimeout = 20 * time.Second
+
+// loadTotals fetches every view's object count concurrently.
+//
+// The $count endpoint returns a bare integer for the whole collection, which
+// is the only cheap way to size a directory -- paging one to count it would
+// cost thousands of requests. Each count stands alone: a view the signed-in
+// user cannot enumerate simply shows no number.
+func (m *Model) loadTotals() tea.Cmd {
+	if m.client == nil {
+		return nil
+	}
+	client := m.client
+	ctx := m.ctx
+
+	all := graph.All()
+	cmds := make([]tea.Cmd, 0, len(all))
+	for _, res := range all {
+		cmds = append(cmds, func() tea.Msg {
+			reqCtx, cancel := context.WithTimeout(ctx, countTimeout)
+			defer cancel()
+			total, err := client.Count(reqCtx, res.Path)
+			return countMsg{kind: res.Kind, total: total, err: err}
+		})
+	}
+	return tea.Batch(cmds...)
+}
+
 // ------------------------------------------------------------------ detail
 
 // loadDetail re-reads an object without a $select projection and gathers the
@@ -247,7 +286,19 @@ func (m *Model) loadDetail(res graph.Resource, id string) tea.Cmd {
 			}()
 		}
 
-		if res.Kind == graph.KindUsers {
+		if res.Kind == graph.KindDevices {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				owners, ownersErr := client.RegisteredOwners(reqCtx, id)
+				mu.Lock()
+				defer mu.Unlock()
+				d.Owners, d.OwnersErr = owners, ownersErr
+			}()
+		}
+
+		// Both users and devices belong to groups.
+		if res.Kind == graph.KindUsers || res.Kind == graph.KindDevices {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

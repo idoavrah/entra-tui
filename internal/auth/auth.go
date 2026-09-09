@@ -40,6 +40,7 @@ func DefaultScopes() []string {
 		GraphResource + "/Group.Read.All",
 		GraphResource + "/GroupMember.Read.All",
 		GraphResource + "/Application.Read.All",
+		GraphResource + "/Device.Read.All",
 	}
 }
 
