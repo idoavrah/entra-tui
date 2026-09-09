@@ -173,7 +173,7 @@ func (m Model) detailBody() []string {
 	}
 
 	body = append(body, m.renderTabBar())
-	return append(body, m.renderTabRows(max(0, height-propHeight-tabBarHeight))...)
+	return append(body, m.renderTabRows(m.tabRowsHeight())...)
 }
 
 // renderTabBar names each list and how much is in it.
@@ -223,10 +223,13 @@ func (m Model) renderTabBar() string {
 	return bar.String()
 }
 
-// renderTabRows draws the active list as a bordered table.
-func (m Model) renderTabRows(height int) []string {
+// renderTabRows draws the active list as a bordered table, showing at most
+// rows of its entries. rows counts data rows only: the table's border, its
+// column titles and the rule under them are drawn on top of that, which is
+// what tabRowsHeight has already set aside.
+func (m Model) renderTabRows(rows int) []string {
 	section, ok := m.activeSection()
-	if !ok || height <= 0 {
+	if !ok || rows <= 0 {
 		return nil
 	}
 
@@ -238,7 +241,6 @@ func (m Model) renderTabRows(height int) []string {
 
 	width := boxInnerWidth(m.width)
 	widths := tabColumnWidths(columns, section.Fields, width)
-	rows := max(0, height-tabChromeHeight)
 
 	out := []string{
 		tabRule(widths, "┌", "┬", "┐"),
@@ -412,31 +414,22 @@ func tabRow(cells []string, widths []int, style lipgloss.Style) string {
 	return b.String()
 }
 
-// detailHints are the keys this screen offers; the general ones live in the
-// header.
+// detailHints are the actions this screen offers. Moving around is the same
+// everywhere, so the keys that do it are in the header, not here.
 func (m Model) detailHints() string {
-	pairs := [][2]string{{"pgup/pgdn", "properties"}}
-	if len(m.listSections()) > 1 {
-		pairs = append(pairs, [2]string{"←/→", "tab"})
-	}
-	if _, ok := m.activeSection(); ok {
-		pairs = append(pairs, [2]string{"↑/↓", "list"})
-	}
-	pairs = append(pairs, [2]string{"R", "raw json"})
+	pairs := [][2]string{{"R", "raw json"}}
 
 	if m.detail.Kind == graph.KindAppRegistrations || m.detail.Kind == graph.KindEnterpriseApps {
 		pairs = append(pairs, [2]string{"x", m.pairHint()})
 	}
-	if m.detailHasRelationship(graph.RelMembers) {
-		pairs = append(pairs, [2]string{"a", "add member"})
-	}
-	if m.detailHasRelationship(m.ownerRelationship()) {
-		pairs = append(pairs, [2]string{"o", "add owner"})
+	// "a" adds to the tab in front, so the hint names that tab rather than
+	// offering a choice the key does not have.
+	if section, ok := m.activeSection(); ok && section.Relationship != "" {
+		pairs = append(pairs, [2]string{"a", "add " + section.Relationship.Label()})
 	}
 	if _, ok := m.selectedEntry(); ok {
 		pairs = append(pairs, [2]string{"d", "remove"})
 	}
-	pairs = append(pairs, [2]string{"c", "copy id"}, [2]string{"esc", "back"})
 	return hintBar(m.width, pairs...)
 }
 

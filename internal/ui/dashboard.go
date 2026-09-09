@@ -113,13 +113,9 @@ func (m Model) renderDashboard() string {
 	}
 
 	hints := hintBar(m.width,
-		[2]string{"↑↓←→", "choose"},
 		[2]string{"enter", "open"},
 		[2]string{"1-5", "open directly"},
 		[2]string{"r", "refresh totals"},
-		[2]string{":", "command"},
-		[2]string{"?", "help"},
-		[2]string{"q", "quit"},
 	)
 	return m.chrome(styleHelpTitle.Render("DIRECTORY"), m.totalsCaption(), body, hints)
 }

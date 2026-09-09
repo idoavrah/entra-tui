@@ -1,42 +1,42 @@
-Tenant   aetherforge-demo-tenant                : view                                                              ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
-Account  kaelen.stormrider0@aetherforge.onmi…   / search                                                            ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
-Signed   demo                                   ~ home                                                              █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
-Status   connected                              ? help                                                              ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
-                                                q quit                                                              ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
-                                                                                                                    ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
-┌──────────────────────────────────────────────────────────────────────────────────────── HELP ────────────────────────────────────────────────────────────────────────────────────────┐
-│NAVIGATION                         VIEWS                                                                                                                                              │
-│  ↑/k ↓/j     move cursor            :users      Users                                                                                                                                │
-│  pgup/pgdn   page                   :groups     Groups                                                                                                                               │
-│  g / G       top / bottom           :appregs    App registrations                                                                                                                    │
-│  enter       describe object        :entapps    Enterprise apps                                                                                                                      │
-│  x           app reg ⇄ ent app      :devices    Devices                                                                                                                              │
-│  q           quit                   ~  :dash    Dashboard                                                                                                                            │
-│                                     esc         back one layer                                                                                                                       │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│SEARCH                                DATA                                                                                                                                            │
-│  /           search the directory      r           refresh from Graph                                                                                                                │
-│  1-0         replay a slot             R           raw json (detail)                                                                                                                 │
-│  esc         clear the search          c           copy object id                                                                                                                    │
-│  :           command prompt                        pages load as you scroll                                                                                                          │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│Search runs against Microsoft Graph, not just the rows on screen.                                                                                                                     │
-│Quick-search slots keep fixed positions, so a digit always replays the same term.                                                                                                     │
-│entra-tui reads the directory and edits only members and owners.                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tenant   aetherforge-demo-tenant                : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
+Account  kaelen.stormrider0@aetherforge.onmi…   / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
+Signed   demo                                   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
+Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
+                                                q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
+                                                                                                                          ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
+┌─────────────────────────────────────────────────────────────────────────────────────────── HELP ───────────────────────────────────────────────────────────────────────────────────────────┐
+│NAVIGATION                         VIEWS                                                                                                                                                    │
+│  ↑/k ↓/j     move cursor            :users      Users                                                                                                                                      │
+│  ←/→         switch list tab        :groups     Groups                                                                                                                                     │
+│  pgup/pgdn   page the list          :appregs    App registrations                                                                                                                          │
+│  g / G       top / bottom           :entapps    Enterprise apps                                                                                                                            │
+│  enter       describe object        :devices    Devices                                                                                                                                    │
+│  x           app reg ⇄ ent app      ~  :dash    Dashboard                                                                                                                                  │
+│                                     esc         back one layer                                                                                                                             │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│SEARCH                                DATA                                                                                                                                                  │
+│  /           search the directory      r           refresh from Graph                                                                                                                      │
+│  1-0         replay a slot             R           raw json (detail)                                                                                                                       │
+│  esc         clear the search          c           copy object id                                                                                                                          │
+│  :           command prompt            a           add to the list in front                                                                                                                │
+│                                        d           remove the selected row                                                                                                                 │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│Search runs against Microsoft Graph, not just the rows on screen.                                                                                                                           │
+│Quick-search slots keep fixed positions, so a digit always replays the same term.                                                                                                           │
+│a adds to whichever list is in front, so it means member on one tab and owner on the next.                                                                                                  │
+│entra-tui reads the directory and edits only members and owners.                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 any key back

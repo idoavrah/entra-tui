@@ -366,7 +366,7 @@ Every flag has an environment variable; flags win.
 | `-graph-url` | `ENTRA_TUI_GRAPH_URL` | `https://graph.microsoft.com/v1.0` |
 | `-view` | — | `users` (preselects a dashboard tile) |
 | `-demo` | — | off — runs against a generated directory |
-| `-delay` | — | off — opens an object's pane only once it has loaded |
+| `-nodelay` | — | off — opens an object's pane before it has loaded |
 | `-version` | — | print the build stamp and exit |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).

@@ -52,10 +52,10 @@ type Options struct {
 	// CacheDir holds the quick-search cache. Empty means the user's own
 	// cache directory; tests point it somewhere disposable.
 	CacheDir string
-	// Delay holds the table on screen until the object has been read, so the
-	// detail pane is drawn once instead of flickering from the row's few
-	// columns to the full object.
-	Delay bool
+	// NoDelay opens an object's pane on the row's own columns and fills the
+	// rest in when the read lands. The default waits, so the pane is drawn
+	// once rather than flickering as every value is replaced.
+	NoDelay bool
 
 	// Client and Identity bypass sign-in when supplied, which is how demo
 	// mode runs with no tenant behind it.
@@ -329,18 +329,13 @@ func (m Model) scrollTab() Model {
 }
 
 // tabRowsHeight is how many list rows fit below the properties.
+//
+// The table's own furniture -- its border, its column titles and the rule
+// under them -- comes out of that space. Leaving it in is what let the
+// selection walk four rows past the last row actually drawn.
 func (m Model) tabRowsHeight() int {
 	total := m.contentHeight()
-	return max(0, total-m.propertyHeight(total)-tabBarHeight)
-}
-
-// ownerRelationship is the name this object's owners live under: devices
-// keep theirs under registeredOwners, everything else under owners.
-func (m Model) ownerRelationship() graph.Relationship {
-	if m.detail.Kind == graph.KindDevices {
-		return graph.RelRegisteredOwners
-	}
-	return graph.RelOwners
+	return max(0, total-m.propertyHeight(total)-tabBarHeight-tabChromeHeight)
 }
 
 // ---------------------------------------------------------------- handlers
@@ -537,11 +532,9 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Right):
 		return m.moveTab(1)
 	case key.Matches(msg, keys.PageUp):
-		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset-m.propertyHeight(m.contentHeight())))
-		return m, nil
+		return m.pageDetail(-1)
 	case key.Matches(msg, keys.PageDown):
-		m.detailVP.SetYOffset(m.detailVP.YOffset + m.propertyHeight(m.contentHeight()))
-		return m, nil
+		return m.pageDetail(1)
 	case key.Matches(msg, keys.Home):
 		m.detailVP.GotoTop()
 		return m, nil
@@ -549,10 +542,8 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailVP.GotoBottom()
 		return m, nil
 
-	case key.Matches(msg, keys.AddMember):
-		return m.openAddModal(graph.RelMembers)
-	case key.Matches(msg, keys.AddOwner):
-		return m.openAddModal(m.ownerRelationship())
+	case key.Matches(msg, keys.Add):
+		return m.addToActiveTab()
 	case key.Matches(msg, keys.Delete):
 		return m.openRemoveModal()
 
@@ -593,6 +584,35 @@ func (m Model) moveTabCursor(delta int) (tea.Model, tea.Cmd) {
 	}
 	m.tabCursor = clamp(m.tabCursor+delta, 0, len(section.Fields)-1)
 	return m.scrollTab(), nil
+}
+
+// pageDetail moves a whole screenful.
+//
+// The lists are what run past their space, so a page moves the list in
+// front. Only an object with no lists at all pages its properties.
+func (m Model) pageDetail(direction int) (tea.Model, tea.Cmd) {
+	if _, ok := m.activeSection(); !ok {
+		step := direction * m.propertyHeight(m.contentHeight())
+		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset+step))
+		return m, nil
+	}
+	return m.moveTabCursor(direction * max(1, m.tabRowsHeight()))
+}
+
+// addToActiveTab adds to whichever list is in front, so one key covers
+// members and owners alike and always means "add to what I am looking at".
+//
+// The tab also settles which collection is written: a device's owners live
+// under registeredOwners rather than owners, and the section carries that.
+func (m Model) addToActiveTab() (tea.Model, tea.Cmd) {
+	section, ok := m.activeSection()
+	if !ok {
+		return m, m.flashFor("this object has no lists to add to")
+	}
+	if section.Relationship == "" {
+		return m, m.flashFor(strings.ToLower(section.Title) + " is not a list you can add to")
+	}
+	return m.openAddModal(section.Relationship)
 }
 
 // moveTab switches between lists, starting the new one from the top.
@@ -769,10 +789,10 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	}
 	m.detailLoading = true
 
-	// -delay keeps the table on screen until that read lands, so the pane is
-	// drawn once. Without it the pane opens on the row's handful of columns
-	// and every value is replaced a moment later.
-	if m.opts.Delay {
+	// The table stays on screen until that read lands, so the pane is drawn
+	// once. -nodelay opens it on the row's handful of columns instead, and
+	// replaces every value a moment later.
+	if !m.opts.NoDelay {
 		m.detailID, m.detailPendingID = id, id
 		return m, m.loadDetail(m.coll.res, id)
 	}

@@ -66,7 +66,7 @@ func run(args []string) error {
 		GraphURL: cfg.GraphURL,
 		PageSize: cfg.PageSize,
 		Resource: cfg.Resource,
-		Delay:    cfg.Delay,
+		NoDelay:  cfg.NoDelay,
 	}
 
 	// Demo mode swaps the tenant for a generated directory served in

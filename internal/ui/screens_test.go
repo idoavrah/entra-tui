@@ -24,7 +24,7 @@ const screensDir = "../../docs/screens"
 // screenSize is the terminal the captures are taken at: wide enough for two
 // detail columns and the full wordmark, tall enough for a full page of rows.
 const (
-	screenWidth  = 184
+	screenWidth  = 190
 	screenHeight = 42
 )
 

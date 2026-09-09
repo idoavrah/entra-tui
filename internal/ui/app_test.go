@@ -91,6 +91,23 @@ func typeKeys(t *testing.T, m Model, s string) Model {
 	return m
 }
 
+// describeRow opens the row under the cursor. A pane waits for the object to
+// be read before it is drawn, so the reply the app is waiting on is delivered
+// here too.
+func describeRow(t *testing.T, m Model) Model {
+	t.Helper()
+	item, _, ok := m.coll.at(m.cursor)
+	if !ok {
+		t.Fatal("no row under the cursor to describe")
+	}
+	kind := m.coll.res.Kind
+	m = send(t, m, press("enter"))
+	if m.screen == screenDetail {
+		return m // -nodelay opened it already
+	}
+	return send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{Kind: kind, Object: item}})
+}
+
 // loadUsers pushes a page of users in as if Graph had replied.
 func loadUsers(t *testing.T, m Model, names ...string) Model {
 	t.Helper()
@@ -326,7 +343,7 @@ func TestEscapeFromBrowseReturnsToDashboard(t *testing.T) {
 
 func TestTildeReturnsToDashboardFromAnywhere(t *testing.T) {
 	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("enter")) // detail
+	m = describeRow(t, m)
 	m = send(t, m, press("~"))
 
 	if m.screen != screenDashboard {
@@ -766,8 +783,7 @@ func TestViewSurvivesEverySizeAndScreen(t *testing.T) {
 // ------------------------------------------------------------------ detail
 
 func TestDetailShowsSections(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("enter"))
+	m := describeRow(t, loadUsers(t, browsing(t), "Ada"))
 
 	if m.screen != screenDetail {
 		t.Fatalf("screen = %v, want screenDetail", m.screen)
@@ -782,8 +798,7 @@ func TestDetailShowsSections(t *testing.T) {
 }
 
 func TestDetailRawTogglesToJSON(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("enter"))
+	m := describeRow(t, loadUsers(t, browsing(t), "Ada"))
 	m = send(t, m, press("R"))
 
 	if !strings.Contains(m.View(), "\"displayName\"") {
@@ -792,14 +807,12 @@ func TestDetailRawTogglesToJSON(t *testing.T) {
 }
 
 func TestDetailReplyForAnotherObjectIsIgnored(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("enter"))
-	m.detailLoading = true
+	m := send(t, loadUsers(t, browsing(t), "Ada"), press("enter"))
 
 	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
 		Kind: graph.KindUsers, Object: graph.Item{"id": "someone-else", "displayName": "Wrong"},
 	}})
-	if !m.detailLoading {
+	if !m.detailLoading || m.screen == screenDetail {
 		t.Error("a reply for a different object was accepted")
 	}
 }
@@ -847,8 +860,7 @@ func TestPairJumpExplainsAMissingCounterpart(t *testing.T) {
 }
 
 func TestPairKeyOnAUserViewSaysSo(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("enter"))
+	m := describeRow(t, loadUsers(t, browsing(t), "Ada"))
 	m = send(t, m, press("x"))
 
 	if !strings.Contains(m.flash, "no paired object") {
@@ -927,9 +939,8 @@ func TestErrorRendersWithItsHint(t *testing.T) {
 }
 
 func TestFlashOnlyClearedByItsOwnTimer(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Ada")
-	m = send(t, m, press("enter")) // detail
-	m = send(t, m, press("x"))     // flashes: users have no paired object
+	m := describeRow(t, loadUsers(t, browsing(t), "Ada"))
+	m = send(t, m, press("x")) // flashes: users have no paired object
 	first := m.flashSeq
 	m = send(t, m, press("x"))
 
@@ -1024,7 +1035,7 @@ func TestFooterStaysTwoLinesAtTheBottom(t *testing.T) {
 	lines := strings.Split(m.View(), "\n")
 
 	// Last line is the hint bar; the one before it is the status line.
-	if !strings.Contains(lines[len(lines)-1], "help") {
+	if !strings.Contains(lines[len(lines)-1], "refresh") {
 		t.Errorf("last line = %q, want the key hints", lines[len(lines)-1])
 	}
 	if !strings.HasPrefix(lines[len(lines)-3], boxBottomLeft) {
@@ -1048,14 +1059,13 @@ func TestUserTableShowsTheRequestedColumns(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------- -delay
+// ------------------------------------------------------ delayed opening
 
-// delayed returns a model with the users view open and -delay set.
+// delayed returns a model with the users view open, opening panes the way
+// the app does by default: only once the object has been read.
 func delayed(t *testing.T) Model {
 	t.Helper()
-	m := browsing(t)
-	m.opts.Delay = true
-	return loadUsers(t, m, "Ada", "Bob")
+	return loadUsers(t, browsing(t), "Ada", "Bob")
 }
 
 func TestDelayHoldsTheTableUntilTheObjectHasLoaded(t *testing.T) {
@@ -1104,8 +1114,10 @@ func TestDelayedOpenIsAbandonedWhenTheCursorMoves(t *testing.T) {
 	}
 }
 
-func TestWithoutDelayThePaneOpensImmediately(t *testing.T) {
-	m := send(t, loadUsers(t, browsing(t), "Ada"), press("enter"))
+func TestNoDelayOpensThePaneImmediately(t *testing.T) {
+	m := browsing(t)
+	m.opts.NoDelay = true
+	m = send(t, loadUsers(t, m, "Ada"), press("enter"))
 	if m.screen != screenDetail {
 		t.Fatalf("screen = %v, want the pane open on the keypress", m.screen)
 	}

@@ -30,8 +30,8 @@ const (
 	quickEntryWidth = 21
 	// quickBlockWidth is the whole two-column grid.
 	quickBlockWidth = quickEntryWidth*2 + 2
-	// shortcutBlockWidth holds the general key legend.
-	shortcutBlockWidth = 14
+	// shortcutColumnGap separates the legend's two columns.
+	shortcutColumnGap = 2
 	// headerBlockGap separates the header's three blocks.
 	headerBlockGap = 3
 	// contextBlockMaxWidth caps the left block so a long tenant id cannot
@@ -142,7 +142,7 @@ func (m Model) contextBlockWidth() int {
 // height of the header and the number of rows in the table below.
 func (m Model) headerLogo() []string {
 	need := m.contextBlockWidth() +
-		headerBlockGap + shortcutBlockWidth +
+		headerBlockGap + shortcutBlockWidth() +
 		headerBlockGap + quickBlockWidth
 	for _, logo := range [][]string{logoFull, logoCompact} {
 		if need+headerBlockGap+logoWidth(logo) <= m.width {
@@ -188,7 +188,7 @@ func (m Model) renderHeader() string {
 	}
 	shortcuts := generalShortcuts()
 	shortcutsAt := -1
-	if shortcutsEnd-shortcutBlockWidth >= contextWidth+headerBlockGap {
+	if shortcutsEnd-shortcutBlockWidth() >= contextWidth+headerBlockGap {
 		shortcutsAt = contextWidth + headerBlockGap
 	}
 
@@ -216,22 +216,66 @@ func (m Model) renderHeader() string {
 	return strings.Join(lines, "\n")
 }
 
-// generalShortcuts is the key legend for what works on every screen.
-// Screen-specific keys stay in the footer.
-func generalShortcuts() []string {
-	pairs := [][2]string{
+// generalShortcutPairs is what works on every screen: changing view,
+// searching, moving around and backing out. Anything a particular screen
+// offers -- adding an owner, jumping to a paired object -- stays in that
+// screen's footer, so the two legends never say the same thing twice.
+//
+// The two columns are read down, not across: the first is what changes
+// screen, the second is what moves within one.
+var generalShortcutPairs = [2][][2]string{
+	{
 		{":", "view"},
 		{"/", "search"},
 		{"~", "home"},
 		{"?", "help"},
 		{"q", "quit"},
+	},
+	{
+		{"esc", "back"},
+		{"c", "copy"},
+		{"↑↓", "move"},
+		{"←→", "tab"},
+		{"pg↑↓", "page"},
+	},
+}
+
+// generalShortcuts renders the legend as rows of a fixed-width block.
+func generalShortcuts() []string {
+	widths := [2]int{}
+	rows := 0
+	for c, col := range generalShortcutPairs {
+		rows = max(rows, len(col))
+		for _, p := range col {
+			widths[c] = max(widths[c], lipgloss.Width(p[0])+1+lipgloss.Width(p[1]))
+		}
 	}
-	out := make([]string, len(pairs))
-	for i, p := range pairs {
-		entry := styleHintKey.Render(p[0]) + styleHintDesc.Render(" "+p[1])
-		out[i] = entry + spaces(shortcutBlockWidth-lipgloss.Width(entry))
+
+	out := make([]string, rows)
+	for i := range rows {
+		var b strings.Builder
+		for c, col := range generalShortcutPairs {
+			if c > 0 {
+				b.WriteString(spaces(shortcutColumnGap))
+			}
+			entry := ""
+			if i < len(col) {
+				entry = styleHintKey.Render(col[i][0]) + styleHintDesc.Render(" "+col[i][1])
+			}
+			b.WriteString(entry + spaces(widths[c]-lipgloss.Width(entry)))
+		}
+		out[i] = b.String()
 	}
 	return out
+}
+
+// shortcutBlockWidth is the width generalShortcuts renders to.
+func shortcutBlockWidth() int {
+	w := 0
+	for _, l := range generalShortcuts() {
+		w = max(w, lipgloss.Width(l))
+	}
+	return w
 }
 
 // contextLines describe who is signed in and what is happening.
@@ -445,13 +489,8 @@ func (m Model) renderBrowse() string {
 
 	hints := hintBar(m.width,
 		[2]string{"enter", "describe"},
-		[2]string{"/", "search"},
-		[2]string{"1-0", "recent"},
-		[2]string{":", "view"},
+		[2]string{"1-0", "replay a search"},
 		[2]string{"r", "refresh"},
-		[2]string{"c", "copy id"},
-		[2]string{"esc", "dashboard"},
-		[2]string{"?", "help"},
 	)
 	return m.chrome(m.tableCaption(), m.tableFooterCaption(), body, hints)
 }
@@ -541,11 +580,11 @@ func (m Model) renderHelp() string {
 	cols := lipgloss.JoinHorizontal(lipgloss.Top,
 		section("NAVIGATION", [][2]string{
 			{"↑/k ↓/j", "move cursor"},
-			{"pgup/pgdn", "page"},
+			{"←/→", "switch list tab"},
+			{"pgup/pgdn", "page the list"},
 			{"g / G", "top / bottom"},
 			{"enter", "describe object"},
 			{"x", "app reg ⇄ ent app"},
-			{"q", "quit"},
 		}),
 		"    ",
 		section("VIEWS", viewRows),
@@ -563,13 +602,15 @@ func (m Model) renderHelp() string {
 			{"r", "refresh from Graph"},
 			{"R", "raw json (detail)"},
 			{"c", "copy object id"},
-			{"", "pages load as you scroll"},
+			{"a", "add to the list in front"},
+			{"d", "remove the selected row"},
 		}),
 	)
 
 	note := styleDim.Render(
 		"Search runs against Microsoft Graph, not just the rows on screen.\n" +
 			"Quick-search slots keep fixed positions, so a digit always replays the same term.\n" +
+			"a adds to whichever list is in front, so it means member on one tab and owner on the next.\n" +
 			"entra-tui reads the directory and edits only members and owners.")
 
 	body := strings.Split(strings.Join([]string{cols, "", cols2, "", note}, "\n"), "\n")

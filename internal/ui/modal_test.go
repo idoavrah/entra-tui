@@ -133,7 +133,9 @@ func TestPagesScrollThePropertiesNotTheList(t *testing.T) {
 }
 
 func TestAddFlowNeedsExactlyOneMatchThenAConfirmation(t *testing.T) {
-	m := groupDetail(t, true)
+	// "a" adds to the tab in front, so the members tab is where a member is
+	// added from.
+	m := tabTitled(t, groupDetail(t, true), "Members")
 	m = send(t, m, press("a"))
 	if m.modal != modalAddPrompt {
 		t.Fatalf("modal = %v, want the add prompt", m.modal)
@@ -259,33 +261,59 @@ func TestSuccessfulWriteClosesAndReloads(t *testing.T) {
 	}
 }
 
-func TestAddOwnerUsesTheDeviceRelationship(t *testing.T) {
-	// Devices keep their owners under registeredOwners; using "owners"
-	// would write to a collection that does not exist.
-	m := groupDetail(t, true)
-	m.detail.Kind = graph.KindDevices
-	if got := m.ownerRelationship(); got != graph.RelRegisteredOwners {
-		t.Errorf("ownerRelationship = %q, want registeredOwners", got)
+// tabTitled moves the tab strip to the named list.
+func tabTitled(t *testing.T, m Model, title string) Model {
+	t.Helper()
+	for i, s := range m.listSections() {
+		if s.Title == title {
+			m.detailTab, m.tabCursor, m.tabOffset = i, 0, 0
+			return m.refreshDetail()
+		}
 	}
+	t.Fatalf("no %q tab; have %d lists", title, len(m.listSections()))
+	return m
+}
 
-	m.detail.Kind = graph.KindGroups
-	if got := m.ownerRelationship(); got != graph.RelOwners {
-		t.Errorf("ownerRelationship = %q, want owners", got)
+func TestAddOnTheOwnersTabAddsAnOwner(t *testing.T) {
+	m := send(t, tabTitled(t, groupDetail(t, true), "Owners"), press("a"))
+	if m.modalRel != graph.RelOwners {
+		t.Errorf("modalRel = %q, want owners", m.modalRel)
 	}
 }
 
-func TestAddMemberRefusedWhereThereAreNoMembers(t *testing.T) {
+func TestOwnersTabOfADeviceWritesRegisteredOwners(t *testing.T) {
+	// Devices keep their owners under registeredOwners; using "owners"
+	// would write to a collection that does not exist. The tab carries the
+	// right name, which is what the add key now goes by.
 	m := groupDetail(t, true)
-	m.detailSections = graph.Sections(graph.Detail{
-		Kind: graph.KindAppRegistrations, Object: graph.Item{"id": "a1", "displayName": "App"},
-	})
-	m = send(t, m, press("a"))
+	m.detail = graph.Detail{
+		Kind:   graph.KindDevices,
+		Object: graph.Item{"id": "d1", "displayName": "Rig"},
+		Owners: []graph.Item{{"id": "u9", "displayName": "Owner One"}},
+	}
+	m.detailSections = graph.Sections(m.detail)
+	m = send(t, tabTitled(t, m.refreshDetail(), "Registered owners"), press("a"))
+
+	if m.modalRel != graph.RelRegisteredOwners {
+		t.Errorf("modalRel = %q, want registeredOwners", m.modalRel)
+	}
+}
+
+func TestAddRefusedOnAListThatCannotBeWritten(t *testing.T) {
+	m := groupDetail(t, true)
+	m.detail = graph.Detail{
+		Kind:   graph.KindUsers,
+		Object: graph.Item{"id": "u1", "displayName": "Ada"},
+		Groups: []graph.Item{{"id": "g1", "displayName": "One"}},
+	}
+	m.detailSections = graph.Sections(m.detail)
+	m = send(t, tabTitled(t, m.refreshDetail(), "Groups"), press("a"))
 
 	if m.modal != modalNone {
-		t.Error("an app registration offered a members dialog")
+		t.Error("a read-only list offered an add dialog")
 	}
-	if !strings.Contains(m.flash, "member") {
-		t.Errorf("flash = %q, want it to explain there are no members", m.flash)
+	if !strings.Contains(strings.ToLower(m.flash), "groups") {
+		t.Errorf("flash = %q, want it to name the list it refused", m.flash)
 	}
 }
 

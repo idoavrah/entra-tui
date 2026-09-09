@@ -1,42 +1,42 @@
-Tenant   aetherforge-demo-tenant                : view                                                              ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
-Account  kaelen.stormrider0@aetherforge.onmi…   / search                                                            ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
-Signed   demo                                   ~ home                                                              █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
-Status   connected                              ? help                                                              ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
-                                                q quit                                                              ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
-                                                                                                                    ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
-┌───────────────────────────────────────────────────────────── App registrations · Ember & Ash — Crash Triage · sections ──────────────────────────────────────────────────────────────┐
-│▌ ESSENTIALS                                                                                 ▌ AUTHENTICATION                                                                         │
-│  Display name             Ember & Ash — Crash Triage                                          Web redirect URIs        https://svc34.aetherforge.games/callback                      │
-│  Application (client) ID  00000034-1111-2222-3333-444444444444                                Home page URL            https://svc34.aetherforge.games                               │
-│  Object ID                a0034                                                               Implicit access tokens   no                                                            │
-│  Supported account types  Single tenant                                                       Implicit ID tokens       yes                                                           │
-│  Publisher domain         aetherforge.games                                                                                                                                          │
-│  Application ID URI       api://aetherforge/34                                                                                                                                       │
-│  Created                  0000-00-00 (······ ago)                                                                                                                                    │
-│  Enterprise app           Ember & Ash — Crash Triage  (press x to open)                                                                                                              │
-│                                                                                                                                                                                      │
-│ Certificates & secrets (1) │ API permissions (2) │ App roles (0) │ Owners (1)   ←/→                                                                                                  │
-│┌─────────────────────────────────┬──────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────┐│
-││ KIND                            │ NAME                                                 │ EXPIRES                                                                                   ││
-│├─────────────────────────────────┼──────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤│
-││ Secret                          │ production                                           │ 0000-00-00 (····)                                                                         ││
-│└─────────────────────────────────┴──────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────┘│
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-│                                                                                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tenant   aetherforge-demo-tenant                : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
+Account  kaelen.stormrider0@aetherforge.onmi…   / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
+Signed   demo                                   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
+Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
+                                                q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
+                                                                                                                          ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
+┌──────────────────────────────────────────────────────────────── App registrations · Ember & Ash — Crash Triage · sections ─────────────────────────────────────────────────────────────────┐
+│▌ ESSENTIALS                                                                                    ▌ AUTHENTICATION                                                                            │
+│  Display name             Ember & Ash — Crash Triage                                             Web redirect URIs        https://svc34.aetherforge.games/callback                         │
+│  Application (client) ID  00000034-1111-2222-3333-444444444444                                   Home page URL            https://svc34.aetherforge.games                                  │
+│  Object ID                a0034                                                                  Implicit access tokens   no                                                               │
+│  Supported account types  Single tenant                                                          Implicit ID tokens       yes                                                              │
+│  Publisher domain         aetherforge.games                                                                                                                                                │
+│  Application ID URI       api://aetherforge/34                                                                                                                                             │
+│  Created                  0000-00-00 (······ ago)                                                                                                                                          │
+│  Enterprise app           Ember & Ash — Crash Triage  (press x to open)                                                                                                                    │
+│                                                                                                                                                                                            │
+│ Certificates & secrets (1) │ API permissions (2) │ App roles (0) │ Owners (1)   ←/→                                                                                                        │
+│┌──────────────────────────────────┬───────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────────┐│
+││ KIND                             │ NAME                                                  │ EXPIRES                                                                                       ││
+│├──────────────────────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────┤│
+││ Secret                           │ production                                            │ 0000-00-00 (····)                                                                             ││
+│└──────────────────────────────────┴───────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────────┘│
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-pgup/pgdn properties  ·  ←/→ tab  ·  ↑/↓ list  ·  R raw json  ·  x enterprise app  ·  o add owner  ·  c copy id  ·  esc back
+R raw json  ·  x enterprise app

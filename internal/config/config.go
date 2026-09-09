@@ -24,10 +24,9 @@ type Config struct {
 	Resource graph.Resource
 	// Demo runs against a generated directory instead of a real tenant.
 	Demo bool
-	// Delay holds the table on screen until an object has been read in
-	// full, instead of opening its pane on the row's columns and filling
-	// them in afterwards.
-	Delay bool
+	// NoDelay opens an object's pane on the row's own columns and fills the
+	// rest in afterwards, instead of waiting for the full read.
+	NoDelay bool
 	// Version asks for the build stamp and nothing else.
 	Version bool
 }
@@ -67,7 +66,7 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 		graphURL = fs.String("graph-url", "", "Graph endpoint, for sovereign clouds")
 		resource = fs.String("view", "users", "view to open on: users, groups, appregs, entapps or devices")
 		demo     = fs.Bool("demo", false, "run against a generated directory, with no tenant and no sign-in")
-		delay    = fs.Bool("delay", false, "open an object's pane only once it has loaded, instead of filling it in")
+		nodelay  = fs.Bool("nodelay", false, "open an object's pane before it has loaded, filling the rest in afterwards")
 		version  = fs.Bool("version", false, "print the build version and exit")
 	)
 
@@ -98,7 +97,7 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	}
 
 	cfg.Demo = *demo
-	cfg.Delay = *delay
+	cfg.NoDelay = *nodelay
 	cfg.Version = *version
 
 	res, ok := graph.Lookup(*resource)
