@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Go
+/entra-tui
+/dist/
+*.exe
+*.test
+*.out
+coverage.txt

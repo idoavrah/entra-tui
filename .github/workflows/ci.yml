@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Actions are pinned to commit SHAs rather than to moving major tags. A tag
+# can be repointed by whoever owns the action; a SHA cannot. The comment
+# after each is the version it was pinned at.
+
+concurrency:
+  # A newer push supersedes an in-flight run on the same ref.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # Checks the module against the Go vulnerability database. It reports
+      # only the advisories whose vulnerable symbols this code actually
+      # reaches, so a finding here is one worth acting on.
+      #
+      # GOTOOLCHAIN is overridden for this step alone. setup-go pins it to
+      # "local" so the project is built by exactly the version go.mod names,
+      # which is what you want for the build -- but govulncheck is a tool,
+      # not a dependency, and its own go directive runs ahead of ours. Under
+      # "local" it cannot be built at all; under "auto" Go fetches the
+      # toolchain it asks for and the project's own version is untouched.
+      - name: Check dependencies for known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        env:
+          GOTOOLCHAIN: auto
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      # The committed screen captures are rendered from the demo directory.
+      # A layout change that nobody meant to make shows up here as a diff.
+      - name: Check screen captures are current
+        run: |
+          go test ./internal/ui -run ScreenCaptures -update
+          if ! git diff --quiet -- docs/screens; then
+            echo "Screen captures are out of date. Run:"
+            echo "  go test ./internal/ui -run ScreenCaptures -update"
+            git diff --stat -- docs/screens
+            exit 1
+          fi
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o /dev/null ./cmd/entra-tui

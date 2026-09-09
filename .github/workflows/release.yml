@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build a release from
+        required: true
+
+permissions:
+  contents: write
+
+# Actions are pinned to commit SHAs, not to moving major tags: this workflow
+# publishes binaries under the repository's name, so a repointed tag would be
+# a way to publish someone else's.
+
+jobs:
+  release:
+    name: Publish binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # GoReleaser derives the changelog from history, so it needs all of it.
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # A release that does not build or pass its tests is worse than no
+      # release, so both run before anything is published.
+      - name: Test
+        run: go test ./...
+
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

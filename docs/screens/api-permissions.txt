@@ -1,0 +1,42 @@
+Version  dev                                    : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
+Tenant   aetherforge-demo-tenant                / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
+Account  kaelen.stormrider0@aetherforge.onmi…   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
+Signed   demo                                   ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
+Status   connected                              q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
+                                                                                                                          ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
+┌────────────────────────────────────────────────────────────────────── App registrations · Ember & Ash — Crash Triage ──────────────────────────────────────────────────────────────────────┐
+│▌ ESSENTIALS                                                                                    ▌ AUTHENTICATION                                                                            │
+│  Display name             Ember & Ash — Crash Triage                                             Web redirect URIs        https://svc34.aetherforge.games/callback                         │
+│  Application (client) ID  00000034-1111-2222-3333-444444444444                                   Home page URL            https://svc34.aetherforge.games                                  │
+│  Object ID                a0034                                                                  Implicit access tokens   no                                                               │
+│  Supported account types  Single tenant                                                          Implicit ID tokens       yes                                                              │
+│  Publisher domain         aetherforge.games                                                                                                                                                │
+│  Application ID URI       api://aetherforge/34                                                                                                                                             │
+│  Created                  0000-00-00 (······ ago)                                                                                                                                          │
+│  Enterprise app           Ember & Ash — Crash Triage  (press x to open)                                                                                                                    │
+│                                                                                                                                                                                            │
+│ Certificates & secrets (1) │ API permissions (2) │ App roles (0) │ Owners (1)   ←/→                                                                                                        │
+│┌───────────────────────────┬─────────────────────────────────┬────────────────────┬────────────────────────┬────────────────────┬─────────────────────────────────────────────────────────┐│
+││ API                       │ PERMISSION                      │ TYPE               │ ADMIN CONSENT          │ STATUS             │ DESCRIPTION                                             ││
+│├───────────────────────────┼─────────────────────────────────┼────────────────────┼────────────────────────┼────────────────────┼─────────────────────────────────────────────────────────┤│
+││ Microsoft Graph           │ User.Read.All                   │ Application        │ yes                    │ Not granted        │ Read all users' full profiles                           ││
+││ Microsoft Graph           │ User.ReadBasic.All              │ Delegated          │ no                     │ Granted            │ Read all users' basic profiles                          ││
+│└───────────────────────────┴─────────────────────────────────┴────────────────────┴────────────────────────┴────────────────────┴─────────────────────────────────────────────────────────┘│
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+R raw json  ·  x enterprise app
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+App registrations › Ember & Ash — Crash Triage                                                                                                                                                

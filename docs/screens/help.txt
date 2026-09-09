@@ -1,0 +1,42 @@
+Version  dev                                    : view    esc back                                                        ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
+Tenant   aetherforge-demo-tenant                / search  c copy                                                          ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
+Account  kaelen.stormrider0@aetherforge.onmi…   ~ home    ↑↓ move                                                         █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
+Signed   demo                                   ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
+Status   connected                              q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
+                                                                                                                          ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
+┌─────────────────────────────────────────────────────────────────────────────────────────── HELP ───────────────────────────────────────────────────────────────────────────────────────────┐
+│NAVIGATION                                              VIEWS                                                                                                                               │
+│  ↑/k ↓/j     move cursor, or walk the list in front      :users      Users                                                                                                                 │
+│  ←/→         switch list tab                             :groups     Groups                                                                                                                │
+│  pgup/pgdn   page the list                               :appregs    App registrations                                                                                                     │
+│  g / G       top / bottom of the list                    :entapps    Enterprise apps                                                                                                       │
+│  enter       describe, or open a linked object           :devices    Devices                                                                                                               │
+│  esc         back one layer                              ~  :dash    Dashboard                                                                                                             │
+│  x           app reg ⇄ ent app                           :  ↑/↓      pick from what a prefix matches                                                                                       │
+│  q           quit                                                                                                                                                                          │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│SEARCH                                DATA                                                                                                                                                  │
+│  /           search the directory      r           refresh from Graph                                                                                                                      │
+│  0-9         replay a slot             R           raw json (detail)                                                                                                                       │
+│  :           command prompt            c           copy object id                                                                                                                          │
+│                                        a           add to the list in front                                                                                                                │
+│                                        d           delete the selected row                                                                                                                 │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│Search runs against Microsoft Graph, not just the rows on screen.                                                                                                                           │
+│esc backs out; it does not clear a search. Run an empty search to do that.                                                                                                                  │
+│Slots keep fixed positions, so a digit always replays the same term. A search                                                                                                               │
+│that finds nothing keeps no slot.                                                                                                                                                           │
+│a adds to whichever list is in front, so it means member on one tab and owner                                                                                                               │
+│on the next; d deletes the row under the cursor from that same list.                                                                                                                        │
+│entra-tui reads the directory and edits only members and owners.                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+│                                                                                                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+any key back
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Help                                                                                                                                                                                          
