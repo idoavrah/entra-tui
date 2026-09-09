@@ -69,6 +69,12 @@ apart. The raw view (`R`) stays faithful — it escapes those characters as
 away. The one clipboard write entra-tui makes (`c`) is an OSC 52 sequence
 carrying base64 of a value the app itself produced.
 
+**Usage tracking.** Anonymous, opt-out, and it never carries directory data:
+events say which view was opened or which relationship was edited, never
+which object. You are identified only by a two-word handle derived from a
+one-way hash of the machine name. Turn it off with `-d` or
+`ENTRA_TUI_DISABLE_USAGE_TRACKING`; demo mode turns it off on its own.
+
 ## What the build does about it
 
 CI runs [`govulncheck`](https://go.dev/blog/govulncheck) on every push, which

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
+	"github.com/idoavrah/entra-tui/internal/telemetry"
 )
 
 // modalKind is the dialog currently in front of the detail pane.
@@ -158,6 +159,11 @@ func (m Model) handleWriteDone(msg writeDoneMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+
+	m.track("changed membership", telemetry.Properties{
+		"action":       map[bool]string{true: "add", false: "delete"}[m.modalAction == actionAdd],
+		"relationship": string(m.modalRel),
+	})
 
 	m = m.closeModal()
 	m.detailLoading = true

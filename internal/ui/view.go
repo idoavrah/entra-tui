@@ -286,14 +286,6 @@ func shortcutBlockWidth() int {
 
 // contextLines describe who is signed in and what is happening.
 func (m Model) contextLines() []string {
-	if m.client == nil {
-		return []string{
-			styleContextKey.Render("Tenant   ") + styleDim.Render(m.opts.Auth.TenantID),
-			styleContextKey.Render("Account  ") + styleDim.Render("not signed in"),
-			"",
-			styleContextKey.Render("Status   ") + m.statusIndicator(),
-		}
-	}
 	tenant := m.identity.TenantID
 	if tenant == "" {
 		tenant = "unknown"
@@ -303,7 +295,8 @@ func (m Model) contextLines() []string {
 		method = "unknown"
 	}
 	return []string{
-		styleContextKey.Render("Version  ") + styleDim.Render(m.versionLabel()),
+		styleContextKey.Render("Version  ") + styleDim.Render(m.versionLabel()) +
+			styleOK.Render(m.opts.Telemetry.UpdateSuffix()),
 		styleContextKey.Render("Tenant   ") + styleContextVal.Render(graph.Truncate(tenant, 36)),
 		styleContextKey.Render("Account  ") + styleContextVal.Render(graph.Truncate(m.identity.Label(), 36)),
 		styleContextKey.Render("Signed   ") + styleDim.Render(method),
@@ -316,14 +309,12 @@ func (m Model) versionLabel() string {
 	if m.opts.Version == "" {
 		return "dev"
 	}
-	return graph.Truncate(m.opts.Version, 36)
+	return graph.Truncate(m.opts.Version, 24)
 }
 
 // statusIndicator reports in-flight work.
 func (m Model) statusIndicator() string {
 	switch {
-	case m.authing:
-		return styleWarn.Render(m.spin.View() + " signing in")
 	case m.loading:
 		return styleDim.Render(m.spin.View() + " loading")
 	case m.loadingMore:

@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/idoavrah/entra-tui/internal/auth"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -15,12 +14,12 @@ func groupDetail(t *testing.T, _ bool) Model {
 	t.Helper()
 	res, _ := graph.Lookup("users")
 	m := New(t.Context(), Options{
-		Auth:     auth.Options{TenantID: "organizations"},
 		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res,
 		CacheDir: t.TempDir(),
+		Client:   graph.New(stubProvider{}, graph.WithBaseURL("http://127.0.0.1:1/v1.0")),
+		Identity: stubProvider{}.Identity(),
 	})
 	m = send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
-	m = send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
 
 	groups, _ := graph.Lookup("groups")
 	next, _ := m.openResource(groups)

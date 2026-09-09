@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/idoavrah/entra-tui/internal/auth"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -17,21 +16,7 @@ import (
 // view. The client retries internally, so this is the outer budget.
 const requestTimeout = 90 * time.Second
 
-// authTimeout bounds an interactive sign-in, which waits on a human.
-const authTimeout = 5 * time.Minute
-
 // ------------------------------------------------------------------ messages
-
-// authURLMsg carries the sign-in URL so it can be shown to a user whose
-// browser failed to open.
-type authURLMsg struct{ url string }
-
-// authDoneMsg reports the outcome of a sign-in attempt.
-type authDoneMsg struct {
-	attempt  int
-	provider auth.Provider
-	err      error
-}
 
 // pageMsg carries a fetched page back to the update loop.
 type pageMsg struct {
@@ -95,41 +80,6 @@ type flashExpiredMsg struct{ seq int }
 type clipboardSentMsg struct{}
 
 // ------------------------------------------------------------------- auth
-
-// waitForAuthURL blocks until the interactive flow reports its sign-in URL.
-func waitForAuthURL(ch chan string) tea.Cmd {
-	return func() tea.Msg {
-		return authURLMsg{url: <-ch}
-	}
-}
-
-// authenticate runs a sign-in in the background.
-//
-// The browser flow publishes its URL through a channel before launching the
-// system browser, so the TUI can display it. Browser launcher output is
-// discarded: with the alternate screen buffer active, anything xdg-open
-// prints would land in the middle of the frame.
-func (m Model) authenticate(method auth.Method) tea.Cmd {
-	attempt := m.authAttempt
-	ch := m.authURLCh
-	opts := m.opts.Auth
-	opts.Method = method
-	opts.Log = func(string, ...any) {}
-	opts.OpenURL = func(url string) error {
-		select {
-		case ch <- url:
-		default: // a URL is already queued; the newest is not more useful
-		}
-		return auth.OpenInBrowser(url)
-	}
-
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(m.ctx, authTimeout)
-		defer cancel()
-		provider, err := auth.Resolve(ctx, opts)
-		return authDoneMsg{attempt: attempt, provider: provider, err: err}
-	}
-}
 
 // ------------------------------------------------------------------ paging
 

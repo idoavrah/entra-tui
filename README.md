@@ -67,9 +67,24 @@ permissions it requests and the rest of the security model.
 | `-view` | — | `users` |
 | `-demo` | — | off — runs against a generated directory |
 | `-nodelay` | — | off — opens a pane before it has loaded |
+| `-d`, `-disable-usage-tracking` | `ENTRA_TUI_DISABLE_USAGE_TRACKING` | off — tracking is on by default |
 | `-version` | — | print the build stamp and exit |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).
+
+## Usage tracking
+
+entra-tui uses [PostHog](https://posthog.com) to understand how it is used,
+the same way [terraform-tui](https://github.com/idoavrah/terraform-tui) does.
+It is **opt-out**: `-d`, or `ENTRA_TUI_DISABLE_USAGE_TRACKING`.
+
+Events record the *shape* of what was done — which view was opened, that a
+search ran, which relationship was edited — and never what it was done to. No
+display name, object id, tenant, sign-in name or search term is ever sent.
+Returning users are a two-word handle derived from a one-way hash of the
+machine name; crash reports have directory names stripped first. Tracking runs
+on its own goroutine, so it cannot block a keystroke or take the app down, and
+demo mode disables it outright, because "no network" should mean it.
 
 ## Development
 
