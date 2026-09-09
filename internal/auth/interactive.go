@@ -37,10 +37,14 @@ func newInteractive(ctx context.Context, opts Options) (Provider, error) {
 	p := &interactiveProvider{client: client, scopes: opts.Scopes}
 
 	opts.Log("opening your browser to sign in to %s...", authority)
+
 	// An empty host lets MSAL pick a free loopback port, which matches the
 	// wildcard http://localhost redirect registered on public clients.
-	res, err := client.AcquireTokenInteractive(ctx, opts.Scopes,
-		public.WithRedirectURI("http://localhost"))
+	args := []public.AcquireInteractiveOption{public.WithRedirectURI("http://localhost")}
+	if opts.OpenURL != nil {
+		args = append(args, public.WithOpenURL(opts.OpenURL))
+	}
+	res, err := client.AcquireTokenInteractive(ctx, opts.Scopes, args...)
 	if err != nil {
 		return nil, fmt.Errorf("interactive sign-in: %w", err)
 	}

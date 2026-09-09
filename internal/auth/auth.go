@@ -101,9 +101,14 @@ type Options struct {
 	TenantID string
 	Scopes   []string
 	Method   Method
-	// Stderr receives human-readable progress ("opening browser..."). It is
-	// written to before the TUI claims the terminal.
+	// Log receives human-readable progress ("opening browser...").
 	Log func(format string, args ...any)
+	// OpenURL is called with the sign-in URL before the browser is launched.
+	// The TUI uses it to display the URL, so a user whose browser did not
+	// open has something to copy. Returning an error aborts the flow.
+	//
+	// When nil, the default system browser launcher is used.
+	OpenURL func(url string) error
 }
 
 func (o *Options) applyDefaults() {

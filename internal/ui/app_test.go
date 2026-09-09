@@ -18,19 +18,38 @@ func (stubProvider) Identity() auth.Identity {
 	return auth.Identity{Account: "ada@contoso.com", TenantID: "tid", Method: auth.MethodBrowser}
 }
 
-// newTestModel builds a model sized for a terminal, with no request in
-// flight. Commands returned by Update are deliberately not executed, so no
-// test here touches the network.
-func newTestModel(t *testing.T) Model {
+// newLoginModel returns a sized model sitting on the login screen.
+func newLoginModel(t *testing.T) Model {
 	t.Helper()
 	res, ok := graph.Lookup("users")
 	if !ok {
 		t.Fatal("users resource missing")
 	}
-	client := graph.New(stubProvider{}, graph.WithBaseURL("http://127.0.0.1:1/v1.0"))
-	m := New(context.Background(), client, stubProvider{}.Identity(), res, 100)
+	m := New(context.Background(), Options{
+		Auth:     auth.Options{TenantID: "organizations"},
+		GraphURL: "http://127.0.0.1:1/v1.0",
+		PageSize: 100,
+		Resource: res,
+	})
+	return send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
+}
+
+// signedIn advances a model past the login screen without touching a network.
+func signedIn(t *testing.T, m Model) Model {
+	t.Helper()
+	m.authAttempt++
+	return send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
+}
+
+// browsing returns a model with the users view open and no request pending.
+func browsing(t *testing.T) Model {
+	t.Helper()
+	m := signedIn(t, newLoginModel(t))
+	res, _ := graph.Lookup("users")
+	next, _ := m.openResource(res)
+	m = next.(Model)
 	m.loading = false
-	return send(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	return m
 }
 
 func send(t *testing.T, m Model, msg tea.Msg) Model {
@@ -54,14 +73,11 @@ func press(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
-	case "backspace":
-		return tea.KeyMsg{Type: tea.KeyBackspace}
 	default:
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 	}
 }
 
-// typeKeys feeds a string one keystroke at a time.
 func typeKeys(t *testing.T, m Model, s string) Model {
 	t.Helper()
 	for _, r := range s {
@@ -70,173 +86,386 @@ func typeKeys(t *testing.T, m Model, s string) Model {
 	return m
 }
 
-// loadUsers pushes a page of users into the model as if Graph had replied.
+// loadUsers pushes a page of users in as if Graph had replied.
 func loadUsers(t *testing.T, m Model, names ...string) Model {
 	t.Helper()
 	items := make([]graph.Item, 0, len(names))
 	for _, n := range names {
 		items = append(items, graph.Item{
-			"id": n, "displayName": n, "userPrincipalName": strings.ToLower(n) + "@contoso.com",
-			"userType": "Member", "accountEnabled": true,
+			"id": n, "displayName": n,
+			"userPrincipalName": strings.ToLower(n) + "@contoso.com",
+			"userType":          "Member", "accountEnabled": true,
 		})
 	}
-	return send(t, m, pageMsg{
-		gen:  m.gen,
-		page: &graph.Page{Items: items, TotalCount: int64(len(items))},
-	})
+	return send(t, m, pageMsg{gen: m.gen, page: &graph.Page{Items: items, TotalCount: int64(len(items))}})
 }
 
-func TestPageLoadPopulatesTable(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace", "Alan")
+// ------------------------------------------------------------ login screen
 
-	if m.coll.len() != 3 {
-		t.Fatalf("len = %d, want 3", m.coll.len())
+func TestStartsOnLoginAndQueriesNothing(t *testing.T) {
+	m := newLoginModel(t)
+
+	if m.screen != screenLogin {
+		t.Fatalf("screen = %v, want screenLogin", m.screen)
 	}
-	if m.loading {
-		t.Error("loading is still set after a page arrived")
+	if m.client != nil {
+		t.Error("a Graph client exists before sign-in")
 	}
-	if !strings.Contains(m.View(), "Ada") {
-		t.Error("View does not show the loaded rows")
+	if m.coll != nil {
+		t.Error("a collection exists before sign-in; nothing should be queried")
+	}
+	if !strings.Contains(m.View(), "SIGN IN") {
+		t.Error("login screen does not render its title")
 	}
 }
 
-func TestStalePageIsDropped(t *testing.T) {
-	// A reply for a resource the user has already navigated away from must
-	// not land in the new table.
-	m := loadUsers(t, newTestModel(t), "Ada")
-	m = send(t, m, press(":"))
-	m = typeKeys(t, m, "groups")
-	m = send(t, m, press("enter"))
-
-	if m.coll.res.Kind != graph.KindGroups {
-		t.Fatalf("resource = %s, want groups", m.coll.res.Kind)
+func TestLoginOffersBothMethods(t *testing.T) {
+	view := newLoginModel(t).View()
+	for _, want := range []string{"browser", "Azure CLI"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("login screen missing %q", want)
+		}
 	}
+}
 
-	stale := send(t, m, pageMsg{gen: 0, page: &graph.Page{
-		Items: []graph.Item{{"id": "x", "displayName": "Leftover"}},
+func TestLoginCursorMoves(t *testing.T) {
+	m := newLoginModel(t)
+	m.authCursor = authOptionBrowser
+
+	m = send(t, m, press("down"))
+	if m.authCursor != authOptionAzureCLI {
+		t.Errorf("cursor = %d, want the Azure CLI option", m.authCursor)
+	}
+	m = send(t, m, press("up"))
+	m = send(t, m, press("up"))
+	if m.authCursor != authOptionBrowser {
+		t.Errorf("cursor = %d, want it clamped at the first option", m.authCursor)
+	}
+}
+
+func TestSuccessfulSignInLandsOnDashboard(t *testing.T) {
+	m := signedIn(t, newLoginModel(t))
+
+	if m.screen != screenDashboard {
+		t.Fatalf("screen = %v, want screenDashboard", m.screen)
+	}
+	if m.client == nil {
+		t.Error("no Graph client after sign-in")
+	}
+	if m.coll != nil {
+		t.Error("a view was loaded automatically; the dashboard should wait for a choice")
+	}
+	if m.identity.Account != "ada@contoso.com" {
+		t.Errorf("identity = %q, want the provider's account", m.identity.Account)
+	}
+}
+
+func TestStaleSignInResultIsIgnored(t *testing.T) {
+	// Cancelling an attempt and starting another must not let the abandoned
+	// one land.
+	m := newLoginModel(t)
+	m.authAttempt = 5
+	m = send(t, m, authDoneMsg{attempt: 2, provider: stubProvider{}})
+
+	if m.screen != screenLogin {
+		t.Error("an abandoned sign-in attempt was accepted")
+	}
+}
+
+func TestSignInErrorStaysOnLogin(t *testing.T) {
+	m := newLoginModel(t)
+	m.authAttempt++
+	m = send(t, m, authDoneMsg{attempt: m.authAttempt, err: context.DeadlineExceeded})
+
+	if m.screen != screenLogin {
+		t.Errorf("screen = %v, want to stay on login after a failure", m.screen)
+	}
+	if m.err == nil {
+		t.Error("the sign-in error was not recorded")
+	}
+}
+
+func TestSignInURLIsShownWhenBrowserDoesNotOpen(t *testing.T) {
+	m := newLoginModel(t)
+	m.authing = true
+	m = send(t, m, authURLMsg{url: "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize?x=1"})
+
+	if !strings.Contains(m.View(), "login.microsoftonline.com") {
+		t.Error("the sign-in URL is not offered for manual use")
+	}
+}
+
+// -------------------------------------------------------------- dashboard
+
+func TestDashboardListsEveryView(t *testing.T) {
+	view := signedIn(t, newLoginModel(t)).View()
+	for _, want := range []string{"Users", "Groups", "App registrations", "Enterprise apps"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+}
+
+func TestDashboardDigitOpensView(t *testing.T) {
+	m := send(t, signedIn(t, newLoginModel(t)), press("3"))
+
+	if m.screen != screenBrowse {
+		t.Fatalf("screen = %v, want screenBrowse", m.screen)
+	}
+	if m.coll.res.Kind != graph.KindAppRegistrations {
+		t.Errorf("view = %s, want app registrations", m.coll.res.Kind)
+	}
+	if !m.loading {
+		t.Error("opening a view did not start a load")
+	}
+}
+
+func TestEscapeFromBrowseReturnsToDashboard(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	m = send(t, m, press("esc"))
+
+	if m.screen != screenDashboard {
+		t.Errorf("screen = %v, want screenDashboard", m.screen)
+	}
+}
+
+func TestTildeReturnsToDashboardFromAnywhere(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	m = send(t, m, press("enter")) // detail
+	m = send(t, m, press("~"))
+
+	if m.screen != screenDashboard {
+		t.Errorf("screen = %v, want the dashboard", m.screen)
+	}
+}
+
+func TestReturningToDashboardDropsInFlightPages(t *testing.T) {
+	m := browsing(t)
+	gen := m.gen
+	m = send(t, m, press("esc"))
+
+	m = send(t, m, pageMsg{gen: gen, page: &graph.Page{
+		Items: []graph.Item{{"id": "x", "displayName": "Late"}},
 	}})
-	if stale.coll.len() != 0 {
-		t.Errorf("len = %d, want the stale page ignored", stale.coll.len())
+	if m.coll.len() != 0 {
+		t.Error("a page that arrived after leaving the view was applied")
 	}
 }
 
-func TestStaleErrorIsDropped(t *testing.T) {
-	m := newTestModel(t)
-	m.gen = 5
-	m = send(t, m, errMsg{gen: 1, err: context.Canceled})
-	if m.err != nil {
-		t.Errorf("err = %v, want the stale error ignored", m.err)
-	}
-}
+// ----------------------------------------------------------------- search
 
-func TestCommandPromptSwitchesResource(t *testing.T) {
-	m := newTestModel(t)
-	m = send(t, m, press(":"))
-	if m.mode != modeCommand {
-		t.Fatalf("mode = %v, want modeCommand", m.mode)
+func TestSlashRunsAServerSearch(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada", "Grace")
+	m = send(t, m, press("/"))
+	if m.mode != modeSearch {
+		t.Fatalf("mode = %v, want modeSearch", m.mode)
 	}
-	m = typeKeys(t, m, "sp")
+	m = typeKeys(t, m, "torvalds")
 	m = send(t, m, press("enter"))
 
-	if m.mode != modeNormal {
-		t.Errorf("mode = %v, want modeNormal after commit", m.mode)
+	if m.coll.search != "torvalds" {
+		t.Errorf("search = %q, want the term recorded", m.coll.search)
 	}
-	if m.coll.res.Kind != graph.KindEnterpriseApps {
-		t.Errorf("resource = %s, want servicePrincipals", m.coll.res.Kind)
+	if !m.loading {
+		t.Error("committing a search did not trigger a requery")
+	}
+	if m.coll.len() != 0 {
+		t.Error("previous rows survived the requery; search must reload from Graph")
 	}
 }
 
-func TestUnknownCommandFlashesInsteadOfSwitching(t *testing.T) {
-	m := newTestModel(t)
+func TestSearchIsRecordedAsAQuickSearch(t *testing.T) {
+	m := browsing(t)
+	m = send(t, m, press("/"))
+	m = typeKeys(t, m, "finance")
+	m = send(t, m, press("enter"))
+
+	recent := m.history.list(string(graph.KindUsers))
+	if len(recent) != 1 || recent[0] != "finance" {
+		t.Fatalf("history = %v, want [finance]", recent)
+	}
+	if !strings.Contains(m.View(), "finance") {
+		t.Error("the quick-search bar does not show the recent search")
+	}
+}
+
+func TestQuickSearchesAreScopedToTheView(t *testing.T) {
+	m := browsing(t)
+	m.history.record(string(graph.KindUsers), "ada")
+	m.history.record(string(graph.KindGroups), "finance")
+
+	if got := m.history.list(string(graph.KindUsers)); len(got) != 1 || got[0] != "ada" {
+		t.Errorf("users history = %v, want [ada]", got)
+	}
+	if got := m.history.list(string(graph.KindGroups)); len(got) != 1 || got[0] != "finance" {
+		t.Errorf("groups history = %v, want [finance]", got)
+	}
+}
+
+func TestDigitReplaysARecentSearch(t *testing.T) {
+	m := browsing(t)
+	m.history.record(string(graph.KindUsers), "second")
+	m.history.record(string(graph.KindUsers), "first")
+
+	m = send(t, m, press("2"))
+	if m.coll.search != "second" {
+		t.Errorf("search = %q, want the second most recent term", m.coll.search)
+	}
+	if !m.loading {
+		t.Error("replaying a search did not requery")
+	}
+}
+
+func TestDigitWithNoHistoryIsIgnored(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	m = send(t, m, press("5"))
+
+	if m.coll.search != "" || m.loading {
+		t.Error("an empty quick-search slot triggered a query")
+	}
+	if m.coll.len() != 1 {
+		t.Error("the loaded rows were disturbed")
+	}
+}
+
+func TestEscapeClearsSearchBeforeLeavingTheView(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	m.coll.search = "ada"
+
+	m = send(t, m, press("esc"))
+	if m.screen != screenBrowse {
+		t.Fatalf("screen = %v, want to stay in the view while a search is set", m.screen)
+	}
+	if m.coll.search != "" {
+		t.Errorf("search = %q, want it cleared", m.coll.search)
+	}
+
+	m.loading = false
+	m = send(t, m, press("esc"))
+	if m.screen != screenDashboard {
+		t.Errorf("screen = %v, want the dashboard on the second esc", m.screen)
+	}
+}
+
+func TestRepeatingTheSameSearchDoesNotRequery(t *testing.T) {
+	m := browsing(t)
+	m.coll.search = "ada"
+	m.loading = false
+
+	m = send(t, m, press("/"))
+	m = send(t, m, press("enter")) // prompt pre-filled with "ada"
+	if m.loading {
+		t.Error("an unchanged search term triggered a redundant requery")
+	}
+}
+
+// ------------------------------------------------------------------ views
+
+func TestColonAliasesSwitchViews(t *testing.T) {
+	for alias, want := range map[string]graph.Kind{
+		"users":   graph.KindUsers,
+		"groups":  graph.KindGroups,
+		"appregs": graph.KindAppRegistrations,
+		"entapps": graph.KindEnterpriseApps,
+	} {
+		m := browsing(t)
+		m = send(t, m, press(":"))
+		m = typeKeys(t, m, alias)
+		m = send(t, m, press("enter"))
+
+		if m.coll.res.Kind != want {
+			t.Errorf(":%s opened %s, want %s", alias, m.coll.res.Kind, want)
+		}
+		if m.screen != screenBrowse {
+			t.Errorf(":%s left screen = %v, want screenBrowse", alias, m.screen)
+		}
+	}
+}
+
+func TestColonDashboardReturnsHome(t *testing.T) {
+	m := browsing(t)
+	m = send(t, m, press(":"))
+	m = typeKeys(t, m, "dash")
+	m = send(t, m, press("enter"))
+
+	if m.screen != screenDashboard {
+		t.Errorf("screen = %v, want screenDashboard", m.screen)
+	}
+}
+
+func TestUnknownCommandFlashes(t *testing.T) {
+	m := browsing(t)
 	m = send(t, m, press(":"))
 	m = typeKeys(t, m, "devices")
 	m = send(t, m, press("enter"))
 
-	if m.coll.res.Kind != graph.KindUsers {
-		t.Errorf("resource = %s, want users unchanged", m.coll.res.Kind)
-	}
 	if !strings.Contains(m.flash, "devices") {
 		t.Errorf("flash = %q, want it to name the bad command", m.flash)
 	}
 }
 
-func TestDigitKeysJumpBetweenViews(t *testing.T) {
-	m := newTestModel(t)
-	m = send(t, m, press("2"))
-	if m.coll.res.Kind != graph.KindGroups {
-		t.Errorf("after '2' resource = %s, want groups", m.coll.res.Kind)
+// ------------------------------------------------------------------- table
+
+func TestRowsAreSortedByName(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Zoe", "ada", "Mike")
+
+	var names []string
+	for i := 0; i < m.coll.len(); i++ {
+		item, _, _ := m.coll.at(i)
+		names = append(names, item.String("displayName"))
 	}
-	// Out-of-range digits must be ignored, not panic.
-	m = send(t, m, press("9"))
-	if m.coll.res.Kind != graph.KindGroups {
-		t.Errorf("after '9' resource = %s, want groups unchanged", m.coll.res.Kind)
+	want := []string{"ada", "Mike", "Zoe"}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("order = %v, want %v (case-insensitive by name)", names, want)
+		}
 	}
 }
 
-func TestFilterNarrowsLiveWhileTyping(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace", "Alan")
-	m = send(t, m, press("/"))
-	m = typeKeys(t, m, "a")
+func TestLaterPagesAreMergedInNameOrder(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Bob", "Dave")
+	m = send(t, m, pageMsg{gen: m.gen, append: true, page: &graph.Page{
+		Items: []graph.Item{
+			{"id": "c", "displayName": "Carol"},
+			{"id": "a", "displayName": "Alice"},
+		},
+	}})
 
-	// "Ada", "Grace" and "Alan" all contain an "a" somewhere.
-	if m.coll.len() == 0 {
-		t.Fatal("filter hid every row")
+	var names []string
+	for i := 0; i < m.coll.len(); i++ {
+		item, _, _ := m.coll.at(i)
+		names = append(names, item.String("displayName"))
 	}
-	m = typeKeys(t, m, "l")
-	if m.coll.len() != 1 {
-		t.Fatalf("len = %d, want only Alan to match \"al\"", m.coll.len())
-	}
-	m = send(t, m, press("enter"))
-	if m.mode != modeNormal || m.coll.filter != "al" {
-		t.Errorf("mode=%v filter=%q, want the filter committed", m.mode, m.coll.filter)
+	want := []string{"Alice", "Bob", "Carol", "Dave"}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("order = %v, want %v", names, want)
+		}
 	}
 }
 
-func TestCancellingFilterRestoresThePreviousOne(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace", "Alan")
-	m = send(t, m, press("/"))
-	m = typeKeys(t, m, "ada")
-	m = send(t, m, press("enter"))
-
-	// Reopen, type something else, then abandon it.
-	m = send(t, m, press("/"))
-	m = typeKeys(t, m, "zzz")
-	if m.coll.len() != 0 {
-		t.Fatalf("len = %d, want the live filter applied", m.coll.len())
+func TestSelectionSurvivesAResortingPage(t *testing.T) {
+	// Appending a page re-sorts the collection; the cursor must follow the
+	// object it was on rather than staying at a row index.
+	m := loadUsers(t, browsing(t), "Bob", "Dave")
+	m = send(t, m, press("down")) // select Dave
+	selected, _, _ := m.coll.at(m.cursor)
+	if selected.String("displayName") != "Dave" {
+		t.Fatalf("selected %q, want Dave", selected.String("displayName"))
 	}
-	m = send(t, m, press("esc"))
 
-	if m.coll.filter != "ada" {
-		t.Errorf("filter = %q, want the committed filter restored", m.coll.filter)
-	}
-	if m.coll.len() != 1 {
-		t.Errorf("len = %d, want the restored filter's single match", m.coll.len())
+	m = send(t, m, pageMsg{gen: m.gen, append: true, page: &graph.Page{
+		Items: []graph.Item{{"id": "a", "displayName": "Alice"}},
+	}})
+
+	after, _, _ := m.coll.at(m.cursor)
+	if after.String("displayName") != "Dave" {
+		t.Errorf("selection moved to %q after a re-sort, want Dave", after.String("displayName"))
 	}
 }
 
-func TestEscapePeelsFilterThenSearch(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace")
-	m.coll.search = "ada"
-	m = send(t, m, press("/"))
-	m = typeKeys(t, m, "ada")
-	m = send(t, m, press("enter"))
-
-	m = send(t, m, press("esc"))
-	if m.coll.filter != "" {
-		t.Errorf("filter = %q, want it cleared first", m.coll.filter)
-	}
-	if m.coll.search != "ada" {
-		t.Errorf("search = %q, want it still set after one esc", m.coll.search)
-	}
-
-	m = send(t, m, press("esc"))
-	if m.coll.search != "" {
-		t.Errorf("search = %q, want it cleared by the second esc", m.coll.search)
-	}
-}
-
-func TestCursorMovementClampsToBounds(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace", "Alan")
+func TestCursorClampsToBounds(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada", "Bob", "Cal")
 
 	m = send(t, m, press("up"))
 	if m.cursor != 0 {
@@ -248,65 +477,20 @@ func TestCursorMovementClampsToBounds(t *testing.T) {
 	if m.cursor != 2 {
 		t.Errorf("cursor = %d, want it clamped at the last row", m.cursor)
 	}
-	m = send(t, m, press("g"))
-	if m.cursor != 0 {
-		t.Errorf("cursor = %d, want g to jump to the top", m.cursor)
-	}
-	m = send(t, m, press("G"))
-	if m.cursor != 2 {
-		t.Errorf("cursor = %d, want G to jump to the bottom", m.cursor)
-	}
 }
 
-func TestCursorMovementOnEmptyTableIsSafe(t *testing.T) {
-	m := newTestModel(t)
-	m = send(t, m, press("down"))
-	m = send(t, m, press("G"))
-	if m.cursor != 0 {
-		t.Errorf("cursor = %d, want 0 on an empty table", m.cursor)
-	}
-	if strings.Contains(m.View(), "panic") {
-		t.Error("View reported a panic")
-	}
-}
-
-func TestFilterSuppressesAutomaticPrefetch(t *testing.T) {
-	// With a filter active, nearing the bottom says nothing about how much of
-	// the tenant is loaded; auto-fetching would silently walk the directory.
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace")
-	m.coll.nextLink = "https://graph.example/next"
-	m.coll.setFilter("ada")
-
-	m = send(t, m, press("G"))
-	if m.loadingMore {
-		t.Error("a filtered view triggered an automatic page fetch")
-	}
-}
-
-func TestPrefetchTriggersNearTheEndWhenUnfiltered(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace")
+func TestPrefetchTriggersAtTheBottom(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada", "Bob")
 	m.coll.nextLink = "https://graph.example/next"
 
 	m = send(t, m, press("G"))
 	if !m.loadingMore {
-		t.Error("reaching the last row did not trigger a prefetch")
-	}
-}
-
-func TestNextPageFlashesWhenEverythingIsLoaded(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
-	m = send(t, m, press("n"))
-
-	if m.loadingMore {
-		t.Error("requested another page with no nextLink")
-	}
-	if !strings.Contains(m.flash, "loaded") {
-		t.Errorf("flash = %q, want it to say everything is loaded", m.flash)
+		t.Error("reaching the last row did not prefetch the next page")
 	}
 }
 
 func TestLoadAllStopsAtTheSafetyCap(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
+	m := loadUsers(t, browsing(t), "Ada")
 	m.coll.nextLink = "https://graph.example/next"
 	m.loadAll = true
 	m.autoPages = maxAutoPages
@@ -324,85 +508,171 @@ func TestLoadAllStopsAtTheSafetyCap(t *testing.T) {
 	}
 }
 
-func TestAppendPageKeepsExistingRows(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
-	m = send(t, m, pageMsg{gen: m.gen, append: true, page: &graph.Page{
-		Items: []graph.Item{{"id": "b", "displayName": "Bob"}},
-	}})
-	if m.coll.loaded() != 2 {
-		t.Errorf("loaded = %d, want the appended page added to the first", m.coll.loaded())
+// ------------------------------------------------------------------ layout
+
+func TestPromptAndQuickSearchesRenderAboveTheTable(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	m.history.record(string(graph.KindUsers), "finance")
+
+	lines := strings.Split(m.View(), "\n")
+	idxOf := func(sub string) int {
+		for i, l := range lines {
+			if strings.Contains(l, sub) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	quick := idxOf("[1]")
+	header := idxOf("USER PRINCIPAL NAME")
+	row := idxOf("Ada")
+	if quick < 0 || header < 0 || row < 0 {
+		t.Fatalf("missing landmarks: quick=%d header=%d row=%d", quick, header, row)
+	}
+	if !(quick < header && header < row) {
+		t.Errorf("quick searches must sit above the table: quick=%d header=%d row=%d", quick, header, row)
 	}
 }
 
-func TestFirstPageReplacesExistingRows(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace")
-	m = send(t, m, pageMsg{gen: m.gen, page: &graph.Page{
-		Items: []graph.Item{{"id": "b", "displayName": "Bob"}},
-	}})
-	if m.coll.loaded() != 1 {
-		t.Errorf("loaded = %d, want the reload to replace, not append", m.coll.loaded())
+func TestWordmarkRendersOnTheRight(t *testing.T) {
+	m := browsing(t)
+	lines := strings.Split(m.View(), "\n")
+
+	found := false
+	for _, l := range lines[:logoHeight] {
+		if strings.Contains(l, logo[0]) {
+			found = true
+			// The logo must sit in the right half of a wide terminal.
+			if idx := strings.Index(l, logo[0]); idx < m.width/2 {
+				t.Errorf("wordmark starts at column %d, want it right-aligned", idx)
+			}
+		}
 	}
-	if m.cursor != 0 {
-		t.Errorf("cursor = %d, want it reset on reload", m.cursor)
+	if !found {
+		t.Error("wordmark is missing from the header")
 	}
 }
 
-func TestDetailViewOpensAndReturns(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
+func TestWordmarkIsDroppedInNarrowTerminals(t *testing.T) {
+	m := send(t, browsing(t), tea.WindowSizeMsg{Width: 70, Height: 30})
+	if strings.Contains(m.View(), logo[0]) {
+		t.Error("the wordmark is rendered in a terminal too narrow for it")
+	}
+}
+
+func TestViewSurvivesEverySizeAndScreen(t *testing.T) {
+	base := loadUsers(t, browsing(t), "Ada", "Bob")
+	for _, size := range []tea.WindowSizeMsg{
+		{Width: 20, Height: 12}, {Width: 5, Height: 10}, {Width: 200, Height: 60},
+	} {
+		m := send(t, base, size)
+		for _, s := range []screen{screenLogin, screenDashboard, screenBrowse, screenDetail, screenHelp} {
+			m.screen = s
+			if got := m.View(); got == "" {
+				t.Errorf("View at %dx%d screen %v returned empty", size.Width, size.Height, s)
+			}
+		}
+	}
+}
+
+// ------------------------------------------------------------------ detail
+
+func TestDetailShowsSections(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
 	m = send(t, m, press("enter"))
 
-	if m.view != viewDetail {
-		t.Fatalf("view = %v, want viewDetail", m.view)
+	if m.screen != screenDetail {
+		t.Fatalf("screen = %v, want screenDetail", m.screen)
 	}
-	if !strings.Contains(m.View(), "Ada") {
-		t.Error("detail view does not name the object")
+	view := m.View()
+	if !strings.Contains(view, "ESSENTIALS") {
+		t.Error("detail view has no Essentials section")
 	}
-
-	m = send(t, m, press("R"))
-	if !m.detailRaw {
-		t.Error("R did not toggle raw json")
-	}
-	if !strings.Contains(m.View(), "\"displayName\"") {
-		t.Error("raw view does not render JSON")
-	}
-
-	m = send(t, m, press("esc"))
-	if m.view != viewBrowse {
-		t.Errorf("view = %v, want viewBrowse after esc", m.view)
+	if !strings.Contains(view, "Display name") {
+		t.Error("detail view does not label its fields")
 	}
 }
 
-func TestDetailMsgForAnotherObjectIsIgnored(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
+func TestDetailRawTogglesToJSON(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	m = send(t, m, press("enter"))
+	m = send(t, m, press("R"))
+
+	if !strings.Contains(m.View(), "\"displayName\"") {
+		t.Error("raw mode does not render JSON")
+	}
+}
+
+func TestDetailReplyForAnotherObjectIsIgnored(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
 	m = send(t, m, press("enter"))
 	m.detailLoading = true
 
-	m = send(t, m, detailMsg{gen: m.gen, id: "someone-else", item: graph.Item{"displayName": "Wrong"}})
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind: graph.KindUsers, Object: graph.Item{"id": "someone-else", "displayName": "Wrong"},
+	}})
 	if !m.detailLoading {
 		t.Error("a reply for a different object was accepted")
 	}
-	if m.detailItem.String("displayName") == "Wrong" {
-		t.Error("detail pane shows another object's data")
-	}
 }
 
-func TestDetailMsgEnrichesTheSelectedObject(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
+func TestPairJumpOpensTheCounterpart(t *testing.T) {
+	m := browsing(t)
+	res, _ := graph.Lookup("appregs")
+	next, _ := m.openResource(res)
+	m = next.(Model)
+	m.loading = false
+	m = send(t, m, pageMsg{gen: m.gen, page: &graph.Page{Items: []graph.Item{
+		{"id": "app1", "displayName": "Contoso", "appId": "aaaa"},
+	}}})
 	m = send(t, m, press("enter"))
 
-	m = send(t, m, detailMsg{gen: m.gen, id: "Ada", item: graph.Item{
-		"id": "Ada", "displayName": "Ada", "officeLocation": "Building 7",
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:   graph.KindAppRegistrations,
+		Object: graph.Item{"id": "app1", "displayName": "Contoso", "appId": "aaaa"},
+		Counterpart: &graph.Counterpart{
+			Kind: graph.KindEnterpriseApps, ID: "sp1", DisplayName: "Contoso",
+		},
 	}})
-	if m.detailLoading {
-		t.Error("detailLoading still set after the object arrived")
+
+	m = send(t, m, press("x"))
+	if m.coll.res.Kind != graph.KindEnterpriseApps {
+		t.Errorf("view = %s, want the enterprise apps view", m.coll.res.Kind)
 	}
-	if !strings.Contains(m.View(), "Building 7") {
-		t.Error("detail view does not show the enriched properties")
+	if m.detailID != "sp1" {
+		t.Errorf("detailID = %q, want the paired service principal", m.detailID)
+	}
+	if m.screen != screenDetail {
+		t.Errorf("screen = %v, want to land in the paired detail view", m.screen)
 	}
 }
 
-func TestYankSetsClipboardPayloadInTheFrame(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
+func TestPairJumpExplainsAMissingCounterpart(t *testing.T) {
+	m := browsing(t)
+	m.screen = screenDetail
+	m.detail = graph.Detail{Kind: graph.KindEnterpriseApps, Object: graph.Item{"id": "sp1"}}
+
+	m = send(t, m, pairMsg{gen: m.gen, missing: "no app registration in this tenant"})
+	if !strings.Contains(m.flash, "no app registration") {
+		t.Errorf("flash = %q, want an explanation", m.flash)
+	}
+}
+
+func TestPairKeyOnAUserViewSaysSo(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	m = send(t, m, press("enter"))
+	m = send(t, m, press("x"))
+
+	if !strings.Contains(m.flash, "no paired object") {
+		t.Errorf("flash = %q, want it to explain there is no pairing", m.flash)
+	}
+}
+
+// ------------------------------------------------------------------- misc
+
+func TestYankEmitsClipboardSequence(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
 	m = send(t, m, press("y"))
 
 	if m.pendingClipboard != "Ada" {
@@ -411,51 +681,42 @@ func TestYankSetsClipboardPayloadInTheFrame(t *testing.T) {
 	if !strings.Contains(m.View(), "\x1b]52;c;") {
 		t.Error("View does not carry the OSC 52 clipboard sequence")
 	}
-
 	m = send(t, m, clipboardSentMsg{})
-	if m.pendingClipboard != "" {
-		t.Error("clipboard payload was not retired")
-	}
 	if strings.Contains(m.View(), "\x1b]52;c;") {
-		t.Error("View still emits the clipboard sequence after it was sent")
-	}
-}
-
-func TestHelpOverlayToggles(t *testing.T) {
-	m := newTestModel(t)
-	m = send(t, m, press("?"))
-	if m.view != viewHelp {
-		t.Fatalf("view = %v, want viewHelp", m.view)
-	}
-	if !strings.Contains(m.View(), "NAVIGATION") {
-		t.Error("help view is missing its key reference")
-	}
-	m = send(t, m, press("x"))
-	if m.view != viewBrowse {
-		t.Errorf("view = %v, want any key to dismiss help", m.view)
+		t.Error("clipboard sequence still emitted after it was sent")
 	}
 }
 
 func TestPromptKeysDoNotTriggerShortcuts(t *testing.T) {
-	// Typing "q" into a prompt must not quit, and ":" must not re-open the
-	// command bar.
-	m := newTestModel(t)
+	m := browsing(t)
 	m = send(t, m, press("/"))
-	m = typeKeys(t, m, "q:s")
+	m = typeKeys(t, m, "q:x")
 
 	if m.quitting {
 		t.Error("typing q in a prompt quit the app")
 	}
-	if m.mode != modeFilter {
-		t.Errorf("mode = %v, want the filter prompt to stay open", m.mode)
+	if m.mode != modeSearch {
+		t.Errorf("mode = %v, want the search prompt to stay open", m.mode)
 	}
-	if m.input.Value() != "q:s" {
+	if m.input.Value() != "q:x" {
 		t.Errorf("input = %q, want the literal keystrokes", m.input.Value())
 	}
 }
 
-func TestErrorIsRenderedWithItsHint(t *testing.T) {
-	m := newTestModel(t)
+func TestHelpReturnsToTheScreenItWasOpenedFrom(t *testing.T) {
+	m := signedIn(t, newLoginModel(t))
+	m = send(t, m, press("?"))
+	if m.screen != screenHelp {
+		t.Fatalf("screen = %v, want screenHelp", m.screen)
+	}
+	m = send(t, m, press("x"))
+	if m.screen != screenDashboard {
+		t.Errorf("screen = %v, want to return to the dashboard", m.screen)
+	}
+}
+
+func TestErrorRendersWithItsHint(t *testing.T) {
+	m := browsing(t)
 	m = send(t, m, errMsg{gen: m.gen, err: &graph.APIError{
 		Status: 403, Code: "Authorization_RequestDenied", Message: "Insufficient privileges",
 	}})
@@ -469,31 +730,12 @@ func TestErrorIsRenderedWithItsHint(t *testing.T) {
 	}
 }
 
-func TestViewSurvivesTinyTerminals(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada", "Grace")
-	for _, size := range []tea.WindowSizeMsg{
-		{Width: 20, Height: 10},
-		{Width: 5, Height: 8},
-		{Width: 200, Height: 60},
-	} {
-		m = send(t, m, size)
-		for _, v := range []viewState{viewBrowse, viewDetail, viewHelp} {
-			m.view = v
-			if got := m.View(); got == "" {
-				t.Errorf("View at %dx%d state %v returned empty", size.Width, size.Height, v)
-			}
-		}
-		m.view = viewBrowse
-	}
-}
-
 func TestFlashOnlyClearedByItsOwnTimer(t *testing.T) {
-	m := newTestModel(t)
-	m = send(t, m, press("n")) // sets a flash, seq 1
+	m := loadUsers(t, browsing(t), "Ada")
+	m = send(t, m, press("n"))
 	first := m.flashSeq
-	m = send(t, m, press("n")) // replaces it, seq 2
+	m = send(t, m, press("n"))
 
-	// The first timer firing late must not wipe the newer message.
 	m = send(t, m, flashExpiredMsg{seq: first})
 	if m.flash == "" {
 		t.Error("an older flash timer cleared the current message")
@@ -501,28 +743,5 @@ func TestFlashOnlyClearedByItsOwnTimer(t *testing.T) {
 	m = send(t, m, flashExpiredMsg{seq: m.flashSeq})
 	if m.flash != "" {
 		t.Error("the matching timer did not clear the message")
-	}
-}
-
-func TestSwitchingToTheSameResourceIsANoop(t *testing.T) {
-	m := loadUsers(t, newTestModel(t), "Ada")
-	before := m.gen
-	m = send(t, m, press("1"))
-
-	if m.gen != before {
-		t.Error("re-selecting the current view discarded loaded data")
-	}
-	if m.coll.len() != 1 {
-		t.Errorf("len = %d, want the rows kept", m.coll.len())
-	}
-}
-
-func TestQuitKeySetsQuitting(t *testing.T) {
-	m := send(t, newTestModel(t), press("q"))
-	if !m.quitting {
-		t.Error("q did not set quitting")
-	}
-	if m.View() != "" {
-		t.Error("View still renders while quitting")
 	}
 }

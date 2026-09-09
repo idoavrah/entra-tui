@@ -16,6 +16,16 @@ const (
 	KindEnterpriseApps   Kind = "servicePrincipals"
 )
 
+// Title returns the human name of a collection.
+func (k Kind) Title() string {
+	for _, r := range All() {
+		if r.Kind == k {
+			return r.Title
+		}
+	}
+	return string(k)
+}
+
 // Column is one table column. Width is negotiated at render time: every
 // column is guaranteed MinWidth, and any leftover terminal width is shared
 // out in proportion to Weight. A Weight of zero pins the column to MinWidth,
@@ -32,6 +42,8 @@ type Resource struct {
 	Kind Kind
 	// Title is the human name shown in the header.
 	Title string
+	// Description is the one-line explanation shown on the dashboard.
+	Description string
 	// Aliases are what the user can type after ":" to reach this view.
 	Aliases []string
 	// Path is the Graph collection path.
@@ -101,10 +113,11 @@ func Lookup(name string) (Resource, bool) {
 
 func usersResource() Resource {
 	return Resource{
-		Kind:    KindUsers,
-		Title:   "Users",
-		Aliases: []string{"user", "users", "u"},
-		Path:    "/users",
+		Kind:        KindUsers,
+		Title:       "Users",
+		Description: "People and guests in the directory",
+		Aliases:     []string{"users", "user", "u"},
+		Path:        "/users",
 		Select: []string{
 			"id", "displayName", "userPrincipalName", "mail", "userType",
 			"accountEnabled", "jobTitle", "department", "officeLocation",
@@ -127,10 +140,11 @@ func usersResource() Resource {
 
 func groupsResource() Resource {
 	return Resource{
-		Kind:    KindGroups,
-		Title:   "Groups",
-		Aliases: []string{"group", "groups", "g"},
-		Path:    "/groups",
+		Kind:        KindGroups,
+		Title:       "Groups",
+		Description: "Security and Microsoft 365 groups",
+		Aliases:     []string{"groups", "group", "g"},
+		Path:        "/groups",
 		Select: []string{
 			"id", "displayName", "description", "mail", "mailNickname",
 			"mailEnabled", "securityEnabled", "groupTypes", "visibility",
@@ -187,10 +201,11 @@ func GroupMembership(i Item) string {
 
 func appRegistrationsResource() Resource {
 	return Resource{
-		Kind:    KindAppRegistrations,
-		Title:   "App registrations",
-		Aliases: []string{"app", "apps", "appreg", "appregs", "applications", "a"},
-		Path:    "/applications",
+		Kind:        KindAppRegistrations,
+		Title:       "App registrations",
+		Description: "Applications defined in this tenant",
+		Aliases:     []string{"appregs", "appreg", "apps", "app", "applications", "a"},
+		Path:        "/applications",
 		Select: []string{
 			"id", "appId", "displayName", "signInAudience", "createdDateTime",
 			"publisherDomain", "description", "identifierUris", "tags",
@@ -213,10 +228,11 @@ func appRegistrationsResource() Resource {
 
 func enterpriseAppsResource() Resource {
 	return Resource{
-		Kind:    KindEnterpriseApps,
-		Title:   "Enterprise apps",
-		Aliases: []string{"sp", "sps", "ent", "enterprise", "serviceprincipal", "serviceprincipals", "e"},
-		Path:    "/servicePrincipals",
+		Kind:        KindEnterpriseApps,
+		Title:       "Enterprise apps",
+		Description: "Service principals: apps that can sign in here",
+		Aliases:     []string{"entapps", "entapp", "ent", "enterprise", "sp", "sps", "serviceprincipal", "serviceprincipals", "e"},
+		Path:        "/servicePrincipals",
 		Select: []string{
 			"id", "appId", "displayName", "accountEnabled", "servicePrincipalType",
 			"appRoleAssignmentRequired", "publisherName", "signInAudience",

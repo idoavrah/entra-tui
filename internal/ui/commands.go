@@ -4,15 +4,33 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/idoavrah/entra-tui/internal/auth"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
 // requestTimeout bounds a single Graph round trip from the UI's point of
 // view. The client retries internally, so this is the outer budget.
 const requestTimeout = 90 * time.Second
+
+// authTimeout bounds an interactive sign-in, which waits on a human.
+const authTimeout = 5 * time.Minute
+
+// ------------------------------------------------------------------ messages
+
+// authURLMsg carries the sign-in URL so it can be shown to a user whose
+// browser failed to open.
+type authURLMsg struct{ url string }
+
+// authDoneMsg reports the outcome of a sign-in attempt.
+type authDoneMsg struct {
+	attempt  int
+	provider auth.Provider
+	err      error
+}
 
 // pageMsg carries a fetched page back to the update loop.
 type pageMsg struct {
@@ -32,26 +50,76 @@ type errMsg struct {
 	err error
 }
 
-// detailMsg carries the fully expanded object for the detail pane.
+// detailMsg carries the fully expanded object and its follow-up lookups.
 type detailMsg struct {
-	gen  int
-	id   string
-	item graph.Item
+	gen    int
+	detail graph.Detail
+}
+
+// pairMsg carries the result of an on-demand app registration / enterprise
+// app pairing lookup.
+type pairMsg struct {
+	gen         int
+	counterpart *graph.Counterpart
+	missing     string
+	err         error
 }
 
 // flashExpiredMsg clears a transient status message.
 type flashExpiredMsg struct{ seq int }
 
-// query builds the Graph query for the current resource, filter and search.
+// clipboardSentMsg retires a rendered OSC 52 payload.
+type clipboardSentMsg struct{}
+
+// ------------------------------------------------------------------- auth
+
+// waitForAuthURL blocks until the interactive flow reports its sign-in URL.
+func waitForAuthURL(ch chan string) tea.Cmd {
+	return func() tea.Msg {
+		return authURLMsg{url: <-ch}
+	}
+}
+
+// authenticate runs a sign-in in the background.
+//
+// The browser flow publishes its URL through a channel before launching the
+// system browser, so the TUI can display it. Browser launcher output is
+// discarded: with the alternate screen buffer active, anything xdg-open
+// prints would land in the middle of the frame.
+func (m Model) authenticate(method auth.Method) tea.Cmd {
+	attempt := m.authAttempt
+	ch := m.authURLCh
+	opts := m.opts.Auth
+	opts.Method = method
+	opts.Log = func(string, ...any) {}
+	opts.OpenURL = func(url string) error {
+		select {
+		case ch <- url:
+		default: // a URL is already queued; the newest is not more useful
+		}
+		return auth.OpenInBrowser(url)
+	}
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, authTimeout)
+		defer cancel()
+		provider, err := auth.Resolve(ctx, opts)
+		return authDoneMsg{attempt: attempt, provider: provider, err: err}
+	}
+}
+
+// ------------------------------------------------------------------ paging
+
+// query builds the Graph query for the current view and search term.
 func (m *Model) query() graph.Query {
 	res := m.coll.res
 	q := graph.Query{
 		Path:    res.Path,
 		Select:  res.Select,
 		OrderBy: res.OrderBy,
-		Top:     m.pageSize,
-		// Asking for @odata.count is what lets the status bar say "142 of
-		// 3,481" instead of just "142 so far".
+		Top:     m.opts.PageSize,
+		// Asking for @odata.count is what lets the header say "142 of 3,481"
+		// instead of just "142 so far".
 		Count: true,
 	}
 	if m.coll.search != "" {
@@ -60,7 +128,7 @@ func (m *Model) query() graph.Query {
 	return q
 }
 
-// loadFirst fetches page one of the current resource, replacing any loaded data.
+// loadFirst fetches page one of the current view, replacing loaded data.
 func (m *Model) loadFirst() tea.Cmd {
 	gen := m.gen
 	q := m.query()
@@ -90,24 +158,6 @@ func (m *Model) loadNext() tea.Cmd {
 			return errMsg{gen: gen, err: err}
 		}
 		return pageMsg{gen: gen, page: page, append: true, advanced: advanced}
-	}
-}
-
-// loadDetail fetches an object without a $select projection, so the detail
-// pane can show the full default property set rather than only the handful
-// of fields the table needed.
-func (m *Model) loadDetail(id string) tea.Cmd {
-	gen := m.gen
-	path := m.coll.res.Path + "/" + id
-	client := m.client
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(m.ctx, requestTimeout)
-		defer cancel()
-		item, err := client.Get(ctx, path, nil)
-		if err != nil {
-			return errMsg{gen: gen, err: err}
-		}
-		return detailMsg{gen: gen, id: id, item: item}
 	}
 }
 
@@ -153,6 +203,139 @@ func isBadRequest(err error) bool {
 	var api *graph.APIError
 	return errors.As(err, &api) && api.Status == http.StatusBadRequest
 }
+
+// ------------------------------------------------------------------ detail
+
+// loadDetail re-reads an object without a $select projection and gathers the
+// follow-up lookups its sections need.
+//
+// The lookups run concurrently: an app registration needs its owners, its
+// permission catalogue and its paired service principal, and doing those in
+// series would make opening a detail pane feel slow. Each is independently
+// optional -- a failure records itself in the bundle and the section explains
+// it, rather than failing the whole view.
+func (m *Model) loadDetail(res graph.Resource, id string) tea.Cmd {
+	gen := m.gen
+	client := m.client
+	ctx := m.ctx
+
+	return func() tea.Msg {
+		reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+
+		object, err := client.Get(reqCtx, res.Path+"/"+id, nil)
+		if err != nil {
+			return errMsg{gen: gen, err: err}
+		}
+
+		d := graph.Detail{Kind: res.Kind, Object: object}
+		appID := object.String("appId")
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		if res.Kind == graph.KindAppRegistrations || res.Kind == graph.KindEnterpriseApps {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				owners, ownersErr := client.Owners(reqCtx, res.Path, id)
+				mu.Lock()
+				defer mu.Unlock()
+				d.Owners, d.OwnersErr = owners, ownersErr
+			}()
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				c := resolveCounterpart(reqCtx, client, res.Kind, appID)
+				mu.Lock()
+				defer mu.Unlock()
+				d.Counterpart = c
+			}()
+		}
+
+		if res.Kind == graph.KindAppRegistrations {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				resources, permissions := client.ResolvePermissions(reqCtx, object)
+				mu.Lock()
+				defer mu.Unlock()
+				d.ResourceNames, d.PermissionNames = resources, permissions
+			}()
+		}
+
+		if res.Kind == graph.KindEnterpriseApps {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				assignments, truncated, assignErr := client.AppRoleAssignedTo(reqCtx, id)
+				mu.Lock()
+				defer mu.Unlock()
+				d.Assignments, d.AssignmentsTruncated, d.AssignmentsErr = assignments, truncated, assignErr
+			}()
+		}
+
+		wg.Wait()
+		return detailMsg{gen: gen, detail: d}
+	}
+}
+
+// loadPair resolves the counterpart on demand, for the case where the eager
+// lookup during detail load did not run or did not finish.
+func (m *Model) loadPair(kind graph.Kind, appID string) tea.Cmd {
+	gen := m.gen
+	client := m.client
+	ctx := m.ctx
+
+	return func() tea.Msg {
+		reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+
+		c := resolveCounterpart(reqCtx, client, kind, appID)
+		if c == nil {
+			return pairMsg{gen: gen, missing: missingPairMessage(kind)}
+		}
+		return pairMsg{gen: gen, counterpart: c}
+	}
+}
+
+// resolveCounterpart looks up the other half of the application /
+// service principal pair. A nil result is an ordinary outcome.
+func resolveCounterpart(ctx context.Context, client *graph.Client, kind graph.Kind, appID string) *graph.Counterpart {
+	if appID == "" {
+		return nil
+	}
+	switch kind {
+	case graph.KindAppRegistrations:
+		sp, err := client.ServicePrincipalByAppID(ctx, appID)
+		if err != nil || sp == nil {
+			return nil
+		}
+		return &graph.Counterpart{
+			Kind: graph.KindEnterpriseApps, ID: sp.ID(), DisplayName: sp.String("displayName"),
+		}
+	case graph.KindEnterpriseApps:
+		app, err := client.ApplicationByAppID(ctx, appID)
+		if err != nil || app == nil {
+			return nil
+		}
+		return &graph.Counterpart{
+			Kind: graph.KindAppRegistrations, ID: app.ID(), DisplayName: app.String("displayName"),
+		}
+	}
+	return nil
+}
+
+// missingPairMessage explains why there is nothing to jump to.
+func missingPairMessage(kind graph.Kind) string {
+	if kind == graph.KindEnterpriseApps {
+		return "no app registration in this tenant — the app is published by another organisation"
+	}
+	return "no enterprise application — this registration has no service principal here"
+}
+
+// ------------------------------------------------------------------ chrome
 
 // flashFor shows a transient status message for a fixed duration.
 func (m *Model) flashFor(text string) tea.Cmd {

@@ -137,3 +137,61 @@ func TestHeaderCellsMatchesAdmittedColumns(t *testing.T) {
 		t.Errorf("header = %q, want the dropped column omitted", head)
 	}
 }
+
+// Hebrew fixture, written as an explicit constant so the test source is
+// unambiguous regardless of editor rendering.
+const hebrewName = "שרה כהן"
+
+func TestRenderCellsRightAlignsHebrew(t *testing.T) {
+	widths := []int{12, 6}
+	got := renderCells([]string{hebrewName, "Member"}, widths)
+
+	// The cell keeps its column width...
+	if lipgloss.Width(got) != 12+columnGap+6 {
+		t.Fatalf("row width = %d, want %d", lipgloss.Width(got), 12+columnGap+6)
+	}
+	// ...and the Hebrew is pushed to the right of its own column, which is
+	// where right-to-left text begins.
+	first := []rune(got)[0]
+	if first != ' ' {
+		t.Errorf("first cell starts with %q, want padding before right-aligned Hebrew", first)
+	}
+	if !strings.Contains(got, "Member") {
+		t.Error("the Latin cell was disturbed")
+	}
+}
+
+func TestRenderCellsLeavesLatinLeftAligned(t *testing.T) {
+	got := renderCells([]string{"Ada", "Member"}, []int{12, 6})
+	if !strings.HasPrefix(got, "Ada ") {
+		t.Errorf("row = %q, want the Latin cell left-aligned", got)
+	}
+}
+
+func TestRenderCellsReordersHebrewForDisplay(t *testing.T) {
+	got := renderCells([]string{hebrewName}, []int{20})
+	// The first logical character must end up rightmost in the cell.
+	logical := []rune(hebrewName)
+	trimmed := strings.TrimRight(got, " ")
+	visual := []rune(trimmed)
+	if visual[len(visual)-1] != logical[0] {
+		t.Errorf("rightmost rune = %q, want the first logical rune %q",
+			visual[len(visual)-1], logical[0])
+	}
+}
+
+func TestRenderCellsTruncatesHebrewFromItsTail(t *testing.T) {
+	// Truncation happens in logical order, so an over-long name loses its
+	// end rather than its beginning.
+	got := renderCells([]string{hebrewName}, []int{4})
+	if lipgloss.Width(got) != 4 {
+		t.Fatalf("width = %d, want 4", lipgloss.Width(got))
+	}
+	if !strings.Contains(got, "…") {
+		t.Errorf("row = %q, want a truncation ellipsis", got)
+	}
+	logical := []rune(hebrewName)
+	if !strings.ContainsRune(got, logical[0]) {
+		t.Error("truncation dropped the beginning of the name")
+	}
+}

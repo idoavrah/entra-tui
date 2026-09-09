@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -93,6 +94,10 @@ func layout(cols []graph.Column, avail int) []int {
 
 // renderCells joins pre-rendered cell text into one fixed-width line,
 // truncating any cell that overflows its column.
+//
+// Right-to-left values are reordered for display and aligned to the right of
+// their column, which is where a Hebrew name begins. The column itself does
+// not move, so the table stays a table.
 func renderCells(cells []string, widths []int) string {
 	var b strings.Builder
 	for i, w := range widths {
@@ -103,11 +108,23 @@ func renderCells(cells []string, widths []int) string {
 		if i < len(cells) {
 			cell = cells[i]
 		}
-		cell = graph.Truncate(cell, w)
-		b.WriteString(cell)
+
+		// Truncate while the text is still in logical order, so an
+		// over-long Hebrew name loses its tail rather than its beginning.
+		rtl := bidi.IsRTL(cell)
+		cell = bidi.Display(graph.Truncate(cell, w))
+
 		// Pad by display width rather than byte or rune count so that wide
 		// (CJK) glyphs in a display name do not shear the columns to the right.
-		if pad := w - lipgloss.Width(cell); pad > 0 {
+		pad := w - lipgloss.Width(cell)
+		if pad < 0 {
+			pad = 0
+		}
+		if rtl {
+			b.WriteString(strings.Repeat(" ", pad))
+			b.WriteString(cell)
+		} else {
+			b.WriteString(cell)
 			b.WriteString(strings.Repeat(" ", pad))
 		}
 	}

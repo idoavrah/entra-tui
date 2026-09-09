@@ -56,6 +56,9 @@ var (
 	styleDetailVal = lipgloss.NewStyle().Foreground(colBase)
 
 	styleHelpTitle = lipgloss.NewStyle().Foreground(colAccent).Bold(true).Underline(true)
+
+	// styleSectionTitle heads each group in the detail pane.
+	styleSectionTitle = lipgloss.NewStyle().Foreground(colHeadFg).Bold(true)
 )
 
 // accentStyle tints text with a resource's own accent colour, matching the way
