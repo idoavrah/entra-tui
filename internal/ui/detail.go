@@ -195,11 +195,9 @@ func (m Model) renderTabBar() string {
 	var bar strings.Builder
 	used := 0
 	for i, s := range lists {
-		label := " " + s.Title
-		if n := len(s.Fields); n > 0 {
-			label += " (" + itoa(n) + ")"
-		}
-		label += " "
+		// The count is always shown, zero included: an empty list is a
+		// fact about the object, not a missing tab.
+		label := " " + s.Title + " (" + itoa(len(s.Fields)) + ") "
 
 		cost := len([]rune(label))
 		if i > 0 {
@@ -232,15 +230,6 @@ func (m Model) renderTabRows(height int) []string {
 		return nil
 	}
 
-	if len(section.Fields) == 0 {
-		note := section.Note
-		if note == "" {
-			note = "Nothing here."
-		}
-		return []string{spaces(detailIndent) +
-			styleDim.Render(graph.Truncate(note, boxInnerWidth(m.width)-detailIndent))}
-	}
-
 	columns := section.Columns
 	if len(columns) == 0 {
 		// A section that predates columns still renders as two.
@@ -253,8 +242,20 @@ func (m Model) renderTabRows(height int) []string {
 
 	out := []string{
 		tabRule(widths, "┌", "┬", "┐"),
-		tabRow(headerCellsFor(columns, widths), widths, styleTableHead),
+		tabRow(headerCellsFor(columns, widths), widths, styleTabHead),
 		tabRule(widths, "├", "┼", "┤"),
+	}
+
+	// An empty list still gets its table. A group with no owners looks the
+	// same as a group whose owners have not loaded unless the columns are
+	// there to say which list is empty.
+	if len(section.Fields) == 0 {
+		note := section.Note
+		if note == "" {
+			note = "Nothing here."
+		}
+		out = append(out, tabNote(widths, note))
+		return append(out, tabRule(widths, "└", "┴", "┘"))
 	}
 
 	offset := clamp(m.tabOffset, 0, max(0, len(section.Fields)-1))
@@ -358,6 +359,25 @@ func tabColumnWidths(columns []string, fields []graph.Field, width int) []int {
 		}
 	}
 	return natural
+}
+
+// tabNote draws a single message across the full width of a list table, for
+// a list that has nothing in it.
+func tabNote(widths []int, note string) string {
+	inner := 0
+	for _, w := range widths {
+		inner += w + 2*tabCellPadding
+	}
+	inner += len(widths) - 1 // the column dividers the note spans
+
+	var b strings.Builder
+	b.WriteString(styleBorder.Render(boxVertical))
+	b.WriteString(spaces(tabCellPadding))
+	text := graph.Truncate(note, max(0, inner-2*tabCellPadding))
+	b.WriteString(styleDim.Render(text))
+	b.WriteString(spaces(max(0, inner-tabCellPadding-lipgloss.Width(text))))
+	b.WriteString(styleBorder.Render(boxVertical))
+	return b.String()
 }
 
 // tabRule draws a horizontal border across the column layout.

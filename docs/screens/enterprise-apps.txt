@@ -1,42 +1,42 @@
-Tenant   aetherforge-demo-tenant                : view                                                                        ┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬
-Account  kaelen.stormrider0@aetherforge.onmi…   / search                                                                      ├┤ │││ │ ├┬┘├─┤   │ │ ││
-Signed   demo                                   ~ home                                                                        └─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴
-Status   connected                              ? help
-                                                q quit
-┌──────────────────────────────────────────────────────── Enterprise apps · 86 of 86 · ↑name ────────────────────────────────────────────────────────┐
-│NAME                                                APP ID                               TYPE                 SIGN-IN  ASSIGN REQ SSO               │
-│Ember & Ash — Crash Triage                          00000034-1111-2222-3333-444444444444 ManagedIdentity      yes      yes        oidc              │
-│Ember & Ash — Crash Triage                          00000082-1111-2222-3333-444444444444 ManagedIdentity      yes      yes        oidc              │
-│Ember & Ash — Guild Chat Relay                      00000020-1111-2222-3333-444444444444 Legacy               yes      yes        -                 │
-│Ember & Ash — Guild Chat Relay                      00000049-1111-2222-3333-444444444444 ManagedIdentity      yes      no         oidc              │
-│Ember & Ash — Guild Chat Relay                      00000068-1111-2222-3333-444444444444 Legacy               yes      yes        -                 │
-│Ember & Ash — Leaderboards                          00000025-1111-2222-3333-444444444444 ManagedIdentity      yes      no         oidc              │
-│Ember & Ash — Leaderboards                          00000041-1111-2222-3333-444444444444 Legacy               yes      no         -                 │
-│Ember & Ash — Leaderboards                          00000073-1111-2222-3333-444444444444 ManagedIdentity      yes      no         oidc              │
-│Ember & Ash — Live Events                           00000004-1111-2222-3333-444444444444 ManagedIdentity      yes      yes        oidc              │
-│Ember & Ash — Live Events                           00000061-1111-2222-3333-444444444444 ManagedIdentity      yes      no         oidc              │
-│Ember & Ash — Live Events                           00000071-1111-2222-3333-444444444444 Legacy               yes      no         -                 │
-│Ember & Ash — Matchmaking                           00000002-1111-2222-3333-444444444444 Legacy               yes      yes        -                 │
-│Ember & Ash — Matchmaking                           00000008-1111-2222-3333-444444444444 Legacy               yes      yes        -                 │
-│Ember & Ash — Matchmaking                           00000057-1111-2222-3333-444444444444 Application          yes      no         saml              │
-│Ember & Ash — Player Telemetry                      00000033-1111-2222-3333-444444444444 Application          yes      no         saml              │
-│Ember & Ash — Save Sync                             00000003-1111-2222-3333-444444444444 Application          yes      no         saml              │
-│Ember & Ash — Save Sync                             00000056-1111-2222-3333-444444444444 Legacy               yes      yes        -                 │
-│Hollow Tide — Anti-Cheat Sentinel                   00000039-1111-2222-3333-444444444444 Application          yes      no         saml              │
-│Hollow Tide — Crash Triage                          00000030-1111-2222-3333-444444444444 Application          yes      yes        saml              │
-│Hollow Tide — Crash Triage                          00000035-1111-2222-3333-444444444444 Legacy               yes      no         -                 │
-│Hollow Tide — Crash Triage                          00000072-1111-2222-3333-444444444444 Application          no       yes        saml              │
-│Hollow Tide — Guild Chat Relay                      00000005-1111-2222-3333-444444444444 Legacy               yes      no         -                 │
-│Hollow Tide — Leaderboards                          00000000-1111-2222-3333-444444444444 Application          no       yes        saml              │
-│Hollow Tide — Leaderboards                          00000047-1111-2222-3333-444444444444 Legacy               yes      no         -                 │
-│Hollow Tide — Leaderboards                          00000055-1111-2222-3333-444444444444 ManagedIdentity      yes      no         oidc              │
-│Hollow Tide — Leaderboards                          00000069-1111-2222-3333-444444444444 Application          yes      no         saml              │
-│Hollow Tide — Live Events                           00000079-1111-2222-3333-444444444444 ManagedIdentity      yes      no         oidc              │
-│Hollow Tide — Matchmaking                           00000043-1111-2222-3333-444444444444 ManagedIdentity      yes      no         oidc              │
-│Hollow Tide — Matchmaking                           00000060-1111-2222-3333-444444444444 Application          yes      yes        saml              │
-│Hollow Tide — Player Telemetry                      00000038-1111-2222-3333-444444444444 Legacy               yes      yes        -                 │
-│Hollow Tide — Save Sync                             00000066-1111-2222-3333-444444444444 Application          yes      yes        saml              │
-│Hollow Tide — Store Backend                         00000021-1111-2222-3333-444444444444 Application          yes      no         saml              │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tenant   aetherforge-demo-tenant                : view                                                              ███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗
+Account  kaelen.stormrider0@aetherforge.onmi…   / search                                                            ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║
+Signed   demo                                   ~ home                                                              █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║
+Status   connected                              ? help                                                              ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
+                                                q quit                                                              ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
+                                                                                                                    ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
+┌───────────────────────────────────────────────────────────────────────── Enterprise apps · 86 of 86 · ↑name ─────────────────────────────────────────────────────────────────────────┐
+│NAME                                                                      APP ID                               TYPE                       SIGN-IN  ASSIGN REQ SSO                     │
+│Ember & Ash — Crash Triage                                                00000034-1111-2222-3333-444444444444 ManagedIdentity            yes      yes        oidc                    │
+│Ember & Ash — Crash Triage                                                00000082-1111-2222-3333-444444444444 ManagedIdentity            yes      yes        oidc                    │
+│Ember & Ash — Guild Chat Relay                                            00000020-1111-2222-3333-444444444444 Legacy                     yes      yes        -                       │
+│Ember & Ash — Guild Chat Relay                                            00000049-1111-2222-3333-444444444444 ManagedIdentity            yes      no         oidc                    │
+│Ember & Ash — Guild Chat Relay                                            00000068-1111-2222-3333-444444444444 Legacy                     yes      yes        -                       │
+│Ember & Ash — Leaderboards                                                00000025-1111-2222-3333-444444444444 ManagedIdentity            yes      no         oidc                    │
+│Ember & Ash — Leaderboards                                                00000041-1111-2222-3333-444444444444 Legacy                     yes      no         -                       │
+│Ember & Ash — Leaderboards                                                00000073-1111-2222-3333-444444444444 ManagedIdentity            yes      no         oidc                    │
+│Ember & Ash — Live Events                                                 00000004-1111-2222-3333-444444444444 ManagedIdentity            yes      yes        oidc                    │
+│Ember & Ash — Live Events                                                 00000061-1111-2222-3333-444444444444 ManagedIdentity            yes      no         oidc                    │
+│Ember & Ash — Live Events                                                 00000071-1111-2222-3333-444444444444 Legacy                     yes      no         -                       │
+│Ember & Ash — Matchmaking                                                 00000002-1111-2222-3333-444444444444 Legacy                     yes      yes        -                       │
+│Ember & Ash — Matchmaking                                                 00000008-1111-2222-3333-444444444444 Legacy                     yes      yes        -                       │
+│Ember & Ash — Matchmaking                                                 00000057-1111-2222-3333-444444444444 Application                yes      no         saml                    │
+│Ember & Ash — Player Telemetry                                            00000033-1111-2222-3333-444444444444 Application                yes      no         saml                    │
+│Ember & Ash — Save Sync                                                   00000003-1111-2222-3333-444444444444 Application                yes      no         saml                    │
+│Ember & Ash — Save Sync                                                   00000056-1111-2222-3333-444444444444 Legacy                     yes      yes        -                       │
+│Hollow Tide — Anti-Cheat Sentinel                                         00000039-1111-2222-3333-444444444444 Application                yes      no         saml                    │
+│Hollow Tide — Crash Triage                                                00000030-1111-2222-3333-444444444444 Application                yes      yes        saml                    │
+│Hollow Tide — Crash Triage                                                00000035-1111-2222-3333-444444444444 Legacy                     yes      no         -                       │
+│Hollow Tide — Crash Triage                                                00000072-1111-2222-3333-444444444444 Application                no       yes        saml                    │
+│Hollow Tide — Guild Chat Relay                                            00000005-1111-2222-3333-444444444444 Legacy                     yes      no         -                       │
+│Hollow Tide — Leaderboards                                                00000000-1111-2222-3333-444444444444 Application                no       yes        saml                    │
+│Hollow Tide — Leaderboards                                                00000047-1111-2222-3333-444444444444 Legacy                     yes      no         -                       │
+│Hollow Tide — Leaderboards                                                00000055-1111-2222-3333-444444444444 ManagedIdentity            yes      no         oidc                    │
+│Hollow Tide — Leaderboards                                                00000069-1111-2222-3333-444444444444 Application                yes      no         saml                    │
+│Hollow Tide — Live Events                                                 00000079-1111-2222-3333-444444444444 ManagedIdentity            yes      no         oidc                    │
+│Hollow Tide — Matchmaking                                                 00000043-1111-2222-3333-444444444444 ManagedIdentity            yes      no         oidc                    │
+│Hollow Tide — Matchmaking                                                 00000060-1111-2222-3333-444444444444 Application                yes      yes        saml                    │
+│Hollow Tide — Player Telemetry                                            00000038-1111-2222-3333-444444444444 Legacy                     yes      yes        -                       │
+│Hollow Tide — Save Sync                                                   00000066-1111-2222-3333-444444444444 Application                yes      yes        saml                    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 enter describe  ·  / search  ·  1-0 recent  ·  : view  ·  r refresh  ·  c copy id  ·  esc dashboard  ·  ? help

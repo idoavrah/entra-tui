@@ -52,6 +52,10 @@ type Options struct {
 	// CacheDir holds the quick-search cache. Empty means the user's own
 	// cache directory; tests point it somewhere disposable.
 	CacheDir string
+	// Delay holds the table on screen until the object has been read, so the
+	// detail pane is drawn once instead of flickering from the row's few
+	// columns to the full object.
+	Delay bool
 
 	// Client and Identity bypass sign-in when supplied, which is how demo
 	// mode runs with no tenant behind it.
@@ -107,7 +111,10 @@ type Model struct {
 	detailSections []graph.Section
 	detailRaw      bool
 	detailLoading  bool
-	detailVP       viewport.Model
+	// detailPendingID is the object a -delay open is waiting on. While it is
+	// set the table is still on screen and the pane has not been built.
+	detailPendingID string
+	detailVP        viewport.Model
 	// detailTab is the list tab in front; tabCursor and tabOffset are the
 	// selection and scroll position within it.
 	detailTab int
@@ -220,7 +227,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.detailVP.Width = boxInnerWidth(msg.Width)
-		m.detailVP.Height = detailBodyHeight(msg.Height)
+		m.detailVP.Height = m.detailBodyHeight(msg.Height)
 		if m.screen == screenDetail {
 			// Re-wrap: the section layout depends on the frame's width, so a
 			// resize changes the content, not just the window onto it.
@@ -404,6 +411,10 @@ func (m Model) handleDetail(msg detailMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.detailLoading = false
+	// A -delay open has not built the pane yet: this is where it opens.
+	if m.detailPendingID == msg.detail.Object.ID() {
+		return m.enterDetail(msg.detail), nil
+	}
 	m.detail = msg.detail
 	m.detailSections = graph.Sections(msg.detail)
 	return m.refreshDetail(), nil
@@ -708,6 +719,7 @@ func (m Model) toDashboard() (tea.Model, tea.Cmd) {
 	// Bumping the generation drops any page still in flight, so a reply for
 	// the view just left cannot repopulate it behind the dashboard.
 	m.gen++
+	m.cancelPendingDetail()
 	m.loading, m.loadingMore = false, false
 	m.screen = screenDashboard
 	m.err = nil
@@ -729,28 +741,54 @@ func (m Model) reload() (tea.Model, tea.Cmd) {
 	return m, m.loadFirst()
 }
 
+// enterDetail installs an object in the detail pane and shows it.
+func (m Model) enterDetail(d graph.Detail) Model {
+	m.screen = screenDetail
+	m.detailPendingID = ""
+	m.detailID = d.Object.ID()
+	m.detailRaw = false
+	m.detail = d
+	m.detailSections = graph.Sections(d)
+	m.detailVP = viewport.New(boxInnerWidth(m.width), m.detailBodyHeight(m.height))
+	m.detailTab, m.tabCursor, m.tabOffset = 0, 0, 0
+	return m.refreshDetail()
+}
+
 func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	item, _, ok := m.coll.at(m.cursor)
 	if !ok {
 		return m, nil
 	}
-	m.screen = screenDetail
-	m.detailID = item.ID()
-	m.detailRaw = false
-	m.detail = graph.Detail{Kind: m.coll.res.Kind, Object: item}
-	m.detailSections = graph.Sections(m.detail)
-	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
-	m.detailTab, m.tabCursor, m.tabOffset = 0, 0, 0
-	m = m.refreshDetail()
 
-	if m.detailID == "" {
-		return m, nil
-	}
 	// The table only $selects the columns it needs. The detail view re-reads
 	// the object without a projection and gathers the follow-up lookups --
 	// owners, assignments, permission names -- that make it intelligible.
+	id := item.ID()
+	if id == "" {
+		return m.enterDetail(graph.Detail{Kind: m.coll.res.Kind, Object: item}), nil
+	}
 	m.detailLoading = true
-	return m, m.loadDetail(m.coll.res, m.detailID)
+
+	// -delay keeps the table on screen until that read lands, so the pane is
+	// drawn once. Without it the pane opens on the row's handful of columns
+	// and every value is replaced a moment later.
+	if m.opts.Delay {
+		m.detailID, m.detailPendingID = id, id
+		return m, m.loadDetail(m.coll.res, id)
+	}
+
+	m = m.enterDetail(graph.Detail{Kind: m.coll.res.Kind, Object: item})
+	return m, m.loadDetail(m.coll.res, id)
+}
+
+// cancelPendingDetail abandons a -delay open. Moving off the row or leaving
+// the view means the pane is no longer wanted, and it must not spring open
+// when the read finally lands.
+func (m *Model) cancelPendingDetail() {
+	if m.detailPendingID != "" {
+		m.detailPendingID = ""
+		m.detailLoading = false
+	}
 }
 
 // jumpToPair moves between an app registration and its enterprise
@@ -784,15 +822,8 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	m.coll = newCollection(res)
 	m.cursor, m.offset = 0, 0
 	m.dashCursor = dashboardIndexOf(res.Kind)
-	m.screen = screenDetail
-	m.detailID = c.ID
-	m.detailRaw = false
+	m = m.enterDetail(graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}})
 	m.detailLoading = true
-	m.detail = graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}}
-	m.detailSections = graph.Sections(m.detail)
-	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
-	m.detailTab, m.tabCursor, m.tabOffset = 0, 0, 0
-	m = m.refreshDetail()
 	m.err = nil
 	m.loading = true
 
@@ -833,6 +864,7 @@ func (m Model) moveCursor(delta int) (tea.Model, tea.Cmd) {
 	if m.coll == nil || m.coll.len() == 0 {
 		return m, nil
 	}
+	m.cancelPendingDetail()
 	m.cursor = clamp(m.cursor+delta, 0, m.coll.len()-1)
 	m.ensureVisible()
 

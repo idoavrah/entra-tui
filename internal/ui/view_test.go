@@ -79,7 +79,7 @@ func TestQuickSearchGridSitsBesideTheWordmark(t *testing.T) {
 	line := header[0]
 
 	slotAt := strings.Index(line, "[1]")
-	logoAt := strings.Index(line, logo[0])
+	logoAt := strings.Index(line, m.headerLogo()[0])
 	if slotAt < 0 || logoAt < 0 {
 		t.Fatalf("header %q is missing the grid or the wordmark", line)
 	}

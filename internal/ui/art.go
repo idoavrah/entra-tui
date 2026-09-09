@@ -1,19 +1,36 @@
 package ui
 
-// logo is the ENTRA TUI wordmark shown at the top right of every screen.
-// Each line is exactly logoWidth display cells wide, which the header
-// alignment depends on.
-var logo = []string{
+import "github.com/charmbracelet/lipgloss"
+
+// The ENTRA TUI wordmark, in two sizes.
+//
+// logoFull is the Figlet "ANSI Shadow" rendering of "entra tui"; logoCompact
+// is a three-row box-drawing version for terminals with no room for it. The
+// header picks between them, and drops both when even the small one would
+// crowd out something that does something.
+//
+// Every line of a wordmark is padded to the same number of display cells,
+// which the header alignment depends on.
+var logoFull = []string{
+	"███████╗███╗   ██╗████████╗██████╗  █████╗     ████████╗██╗   ██╗██╗",
+	"██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗    ╚══██╔══╝██║   ██║██║",
+	"█████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║       ██║   ██║   ██║██║",
+	"██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║",
+	"███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║",
+	"╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝",
+}
+
+var logoCompact = []string{
 	"┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬",
 	"├┤ │││ │ ├┬┘├─┤   │ │ ││",
 	"└─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴",
 }
 
-const (
-	logoWidth  = 24
-	logoHeight = 3
-	// logoMinTerminalWidth is the narrowest terminal that still has room for
-	// the wordmark beside the context block. Below it the logo is dropped
-	// rather than wrapped.
-	logoMinTerminalWidth = 90
-)
+// logoWidth is the display width of a wordmark's widest line.
+func logoWidth(logo []string) int {
+	w := 0
+	for _, l := range logo {
+		w = max(w, lipgloss.Width(l))
+	}
+	return w
+}

@@ -68,9 +68,16 @@ var (
 	// styleBorder draws the frame around the content area.
 	styleBorder = lipgloss.NewStyle().Foreground(colDim)
 
-	// Tab strip below the properties in a detail pane.
-	styleTabActive = lipgloss.NewStyle().Foreground(colHeadFg).Bold(true).Underline(true)
+	// Tab strip below the properties in a detail pane. Nothing here is
+	// underlined: the strip's dividers and the list table's own border
+	// already put each title in a cell, and a rule under a cell that has a
+	// border under it is one line too many.
+	styleTabActive = lipgloss.NewStyle().Foreground(colHeadFg).Bold(true)
 	styleTabIdle   = lipgloss.NewStyle().Foreground(colDim)
+
+	// styleTabHead is the column header inside a list table -- styleTableHead
+	// without the underline, which the table's header rule supplies.
+	styleTabHead = lipgloss.NewStyle().Foreground(colHeadFg).Bold(true)
 )
 
 // accentStyle tints text with a resource's own accent colour, matching the way

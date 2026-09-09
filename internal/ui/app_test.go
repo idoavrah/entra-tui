@@ -686,10 +686,14 @@ func TestPromptAndQuickSearchesRenderAboveTheTable(t *testing.T) {
 
 func TestWordmarkRendersOnTheRight(t *testing.T) {
 	m := browsing(t)
+	logo := m.headerLogo()
+	if len(logo) == 0 {
+		t.Fatal("wordmark is missing from the header")
+	}
 	lines := strings.Split(m.View(), "\n")
 
 	found := false
-	for _, l := range lines[:logoHeight] {
+	for _, l := range lines[:len(logo)] {
 		if strings.Contains(l, logo[0]) {
 			found = true
 			// The logo must sit in the right half of a wide terminal.
@@ -703,10 +707,44 @@ func TestWordmarkRendersOnTheRight(t *testing.T) {
 	}
 }
 
-func TestWordmarkIsDroppedInNarrowTerminals(t *testing.T) {
-	m := send(t, browsing(t), tea.WindowSizeMsg{Width: 70, Height: 30})
-	if strings.Contains(m.View(), logo[0]) {
-		t.Error("the wordmark is rendered in a terminal too narrow for it")
+// The full wordmark is 68 cells wide, so it is only drawn where it does not
+// crowd out a block that does something. As the terminal narrows it steps
+// down to the compact mark and then disappears.
+func TestWordmarkStepsDownAsTheTerminalNarrows(t *testing.T) {
+	for _, tc := range []struct {
+		width int
+		want  []string
+	}{
+		{width: 200, want: logoFull},
+		{width: 142, want: logoCompact},
+		{width: 70, want: nil},
+	} {
+		m := send(t, browsing(t), tea.WindowSizeMsg{Width: tc.width, Height: 30})
+		got := m.headerLogo()
+		if len(got) != len(tc.want) || (len(got) > 0 && got[0] != tc.want[0]) {
+			t.Errorf("width %d: wordmark has %d rows, want %d", tc.width, len(got), len(tc.want))
+		}
+		if len(tc.want) == 0 && strings.Contains(m.View(), logoCompact[0]) {
+			t.Errorf("width %d: a wordmark is rendered in a terminal too narrow for it", tc.width)
+		}
+	}
+}
+
+// The header grows a row for the taller wordmark and gives it back when the
+// compact one is in use, so no screen carries a blank header row it cannot
+// use.
+func TestHeaderHeightFollowsTheWordmark(t *testing.T) {
+	wide := send(t, browsing(t), tea.WindowSizeMsg{Width: 200, Height: 30})
+	narrow := send(t, browsing(t), tea.WindowSizeMsg{Width: 142, Height: 30})
+
+	if got, want := wide.headerHeight(), len(logoFull); got != want {
+		t.Errorf("wide header is %d rows, want %d", got, want)
+	}
+	if got, want := narrow.headerHeight(), quickSearchRows; got != want {
+		t.Errorf("narrow header is %d rows, want %d", got, want)
+	}
+	if wide.contentHeight() >= narrow.contentHeight() {
+		t.Error("the taller wordmark must cost a content row, not come free")
 	}
 }
 
@@ -920,15 +958,15 @@ func TestPromptRowAppearsOnlyWhileAPromptIsOpen(t *testing.T) {
 			len(open), len(idle))
 	}
 	// Idle: the frame starts straight after the header, with no reserved row.
-	if !strings.HasPrefix(idle[headerHeight], boxTopLeft) {
-		t.Errorf("idle line %q should be the frame, not a reserved prompt row", idle[headerHeight])
+	if !strings.HasPrefix(idle[m.headerHeight()], boxTopLeft) {
+		t.Errorf("idle line %q should be the frame, not a reserved prompt row", idle[m.headerHeight()])
 	}
 	// Open: the prompt takes that row and the frame moves down one.
-	if !strings.HasPrefix(strings.TrimSpace(open[headerHeight]), "/") {
-		t.Errorf("line %q is not the open search prompt", open[headerHeight])
+	if !strings.HasPrefix(strings.TrimSpace(open[m.headerHeight()]), "/") {
+		t.Errorf("line %q is not the open search prompt", open[m.headerHeight()])
 	}
-	if !strings.HasPrefix(open[headerHeight+1], boxTopLeft) {
-		t.Errorf("line %q should be the frame under an open prompt", open[headerHeight+1])
+	if !strings.HasPrefix(open[m.headerHeight()+1], boxTopLeft) {
+		t.Errorf("line %q should be the frame under an open prompt", open[m.headerHeight()+1])
 	}
 }
 
@@ -939,8 +977,8 @@ func TestHeaderHeightIsFixedAcrossScreens(t *testing.T) {
 		m.screen = s
 		lines := strings.Split(m.View(), "\n")
 		// The frame's top border always sits immediately after the header.
-		if !strings.HasPrefix(lines[headerHeight], boxTopLeft) {
-			t.Errorf("screen %v: line %d = %q, want the frame's top border", s, headerHeight, lines[headerHeight])
+		if !strings.HasPrefix(lines[m.headerHeight()], boxTopLeft) {
+			t.Errorf("screen %v: line %d = %q, want the frame's top border", s, m.headerHeight(), lines[m.headerHeight()])
 		}
 	}
 }
@@ -949,7 +987,7 @@ func TestContentIsFramedAndTheFrameCarriesTheTitle(t *testing.T) {
 	m := loadUsers(t, browsing(t), "Ada")
 	lines := strings.Split(m.View(), "\n")
 
-	top := lines[headerHeight]
+	top := lines[m.headerHeight()]
 	if !strings.Contains(top, "Users") {
 		t.Errorf("top border %q does not carry the screen title", top)
 	}
@@ -957,7 +995,7 @@ func TestContentIsFramedAndTheFrameCarriesTheTitle(t *testing.T) {
 		t.Errorf("top border %q does not carry the row count", top)
 	}
 	// Data rows sit inside vertical borders.
-	row := lines[headerHeight+2]
+	row := lines[m.headerHeight()+2]
 	if !strings.HasPrefix(row, boxVertical) || !strings.HasSuffix(row, boxVertical) {
 		t.Errorf("content row %q is not framed", row)
 	}
@@ -1007,5 +1045,71 @@ func TestUserTableShowsTheRequestedColumns(t *testing.T) {
 		if strings.Contains(view, unwanted) {
 			t.Errorf("users table still shows the %s column", unwanted)
 		}
+	}
+}
+
+// --------------------------------------------------------------- -delay
+
+// delayed returns a model with the users view open and -delay set.
+func delayed(t *testing.T) Model {
+	t.Helper()
+	m := browsing(t)
+	m.opts.Delay = true
+	return loadUsers(t, m, "Ada", "Bob")
+}
+
+func TestDelayHoldsTheTableUntilTheObjectHasLoaded(t *testing.T) {
+	m := send(t, delayed(t), press("enter"))
+
+	if m.screen != screenBrowse {
+		t.Fatalf("screen = %v, want the table to stay on screen", m.screen)
+	}
+	if !m.detailLoading {
+		t.Error("nothing marks the object as loading")
+	}
+	if m.detailPendingID != "Ada" {
+		t.Errorf("detailPendingID = %q, want the row's id", m.detailPendingID)
+	}
+
+	// The pane opens once, already populated: no frame shows the row's
+	// handful of columns waiting to be replaced.
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:   graph.KindUsers,
+		Object: graph.Item{"id": "Ada", "displayName": "Ada", "department": "Engine"},
+	}})
+	if m.screen != screenDetail {
+		t.Fatalf("screen = %v, want the pane to open on the reply", m.screen)
+	}
+	if m.detailPendingID != "" || m.detailLoading {
+		t.Error("the pane opened but still says it is loading")
+	}
+	if !strings.Contains(mustBody(m), "Engine") {
+		t.Error("the pane opened without the object it waited for")
+	}
+}
+
+func TestDelayedOpenIsAbandonedWhenTheCursorMoves(t *testing.T) {
+	// The pane must not spring open over a row the user has moved off.
+	m := send(t, send(t, delayed(t), press("enter")), press("down"))
+	if m.detailPendingID != "" {
+		t.Errorf("detailPendingID = %q, want the open abandoned", m.detailPendingID)
+	}
+
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:   graph.KindUsers,
+		Object: graph.Item{"id": "Ada", "displayName": "Ada"},
+	}})
+	if m.screen != screenBrowse {
+		t.Errorf("screen = %v, want the abandoned reply ignored", m.screen)
+	}
+}
+
+func TestWithoutDelayThePaneOpensImmediately(t *testing.T) {
+	m := send(t, loadUsers(t, browsing(t), "Ada"), press("enter"))
+	if m.screen != screenDetail {
+		t.Fatalf("screen = %v, want the pane open on the keypress", m.screen)
+	}
+	if m.detailPendingID != "" {
+		t.Errorf("detailPendingID = %q, want nothing pending", m.detailPendingID)
 	}
 }

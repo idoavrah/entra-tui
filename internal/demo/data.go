@@ -14,11 +14,16 @@ import (
 // Sizes of the generated directory. Large enough that paging, sorting and
 // searching all do something visible.
 const (
-	UserCount    = 420
-	GroupCount   = 130
-	AppCount     = 85
-	DeviceCount  = 160
-	OwnerCount   = 3
+	UserCount   = 420
+	GroupCount  = 130
+	AppCount    = 85
+	DeviceCount = 160
+	OwnerCount  = 3
+	// OwnerlessInN is how often a group or application is generated with no
+	// owners at all. Ownerless objects are a real and common shape -- one
+	// created by an admin who has since left, or synced from on-premises --
+	// and a directory browser has to show that emptiness convincingly.
+	OwnerlessInN = 6
 	MemberCount  = 12
 	MemberOfSize = 4
 )
@@ -367,10 +372,15 @@ func generateDevices(r *rand.Rand) []graph.Item {
 func (d *Data) linkRelationships(r *rand.Rand) {
 	principal := func() graph.Item { return d.Users[r.Intn(len(d.Users))] }
 
+	// ownerless reports whether this object should be generated with none.
+	ownerless := func() bool { return r.Intn(OwnerlessInN) == 0 }
+
 	for _, g := range d.Groups {
 		id := g.ID()
-		for range OwnerCount {
-			d.Owners[id] = append(d.Owners[id], principal())
+		if !ownerless() {
+			for range OwnerCount {
+				d.Owners[id] = append(d.Owners[id], principal())
+			}
 		}
 		for range MemberCount + r.Intn(MemberCount) {
 			d.Members[id] = append(d.Members[id], principal())
@@ -390,6 +400,9 @@ func (d *Data) linkRelationships(r *rand.Rand) {
 	}
 
 	for _, app := range d.Applications {
+		if ownerless() {
+			continue
+		}
 		d.Owners[app.ID()] = append(d.Owners[app.ID()], principal())
 	}
 	for i, sp := range d.ServicePrincipals {

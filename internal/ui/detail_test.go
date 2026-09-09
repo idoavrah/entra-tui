@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -497,3 +498,75 @@ func TestRawViewCopiesTheWholeObject(t *testing.T) {
 		t.Errorf("flash = %q, want it to say what was copied", copied.flash)
 	}
 }
+
+func TestEmptyListKeepsItsTable(t *testing.T) {
+	// A group with no owners must look different from one whose owners have
+	// not arrived, and the columns are what say so.
+	m := browsing(t)
+	m.detail = graph.Detail{
+		Kind:   graph.KindGroups,
+		Object: graph.Item{"id": "g1", "displayName": "Empty"},
+	}
+	m.screen = screenDetail
+	m.detailID = "g1"
+	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
+
+	section, ok := m.activeSection()
+	if !ok {
+		t.Fatal("a group with no members has no list tabs")
+	}
+	if len(section.Fields) != 0 {
+		t.Fatalf("section %q has %d entries, want an empty one", section.Title, len(section.Fields))
+	}
+
+	rows := m.renderTabRows(12)
+	if len(rows) < 4 {
+		t.Fatalf("empty list drew %d rows, want a full table", len(rows))
+	}
+	plainFirst := ansiPattern.ReplaceAllString(rows[0], "")
+	plainLast := ansiPattern.ReplaceAllString(rows[len(rows)-1], "")
+	if !strings.HasPrefix(plainFirst, "┌") || !strings.HasPrefix(plainLast, "└") {
+		t.Errorf("empty list is not boxed: first %q, last %q", rows[0], rows[len(rows)-1])
+	}
+	if !strings.Contains(ansiPattern.ReplaceAllString(rows[1], ""), "NAME") {
+		t.Errorf("empty list lost its column titles: %q", rows[1])
+	}
+	// The note sits inside the box, not loose above it.
+	note := ansiPattern.ReplaceAllString(rows[3], "")
+	if !strings.HasPrefix(note, boxVertical) || !strings.HasSuffix(note, boxVertical) {
+		t.Errorf("the empty note %q is not inside the table", note)
+	}
+	if plain := ansiPattern.ReplaceAllString(note, ""); strings.TrimSpace(plain) == boxVertical+boxVertical {
+		t.Errorf("the empty note row %q says nothing", note)
+	}
+	// Every row of the table is the same width.
+	for i, r := range rows {
+		if got, want := lipgloss.Width(r), lipgloss.Width(rows[0]); got != want {
+			t.Errorf("row %d is %d cells, want %d", i, got, want)
+		}
+	}
+
+	// The tab strip counts an empty list rather than going silent.
+	if bar := ansiPattern.ReplaceAllString(m.renderTabBar(), ""); !strings.Contains(bar, "(0)") {
+		t.Errorf("tab bar %q does not count an empty list", bar)
+	}
+}
+
+func TestTabTitlesAreNotUnderlined(t *testing.T) {
+	// The strip's dividers and the table's border already put each title in
+	// a cell; an underline on top of that is one rule too many.
+	const underline = "\x1b[4m"
+	for name, got := range map[string]string{
+		"active tab":   styleTabActive.Render("Owners"),
+		"column title": styleTabHead.Render("NAME"),
+	} {
+		if strings.Contains(got, underline) {
+			t.Errorf("%s is underlined: %q", name, got)
+		}
+	}
+}
+
+// ansiPattern strips styling so a test can assert on the characters a reader
+// sees rather than on the escape sequences around them.
+var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)

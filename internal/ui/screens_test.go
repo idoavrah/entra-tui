@@ -22,9 +22,9 @@ var update = flag.Bool("update", false, "rewrite the golden screen captures")
 const screensDir = "../../docs/screens"
 
 // screenSize is the terminal the captures are taken at: wide enough for two
-// columns and the wordmark, tall enough for a full page of rows.
+// detail columns and the full wordmark, tall enough for a full page of rows.
 const (
-	screenWidth  = 150
+	screenWidth  = 184
 	screenHeight = 42
 )
 

@@ -12,9 +12,6 @@ import (
 // the framed content area is the only thing that grows and shrinks with the
 // terminal.
 const (
-	// headerHeight holds the context block, the quick-search grid and the
-	// wordmark side by side. The grid is the tallest of the three.
-	headerHeight = quickSearchRows
 	footerHeight = 2 // status line, key hints
 	boxChrome    = 2 // top and bottom border
 	// tableHeadHeight is the column header row, drawn inside the frame.
@@ -51,9 +48,16 @@ func (m Model) promptLines() int {
 	return 0
 }
 
+// headerHeight is the height of the header block: the context lines, the
+// quick-search grid and the wordmark sit side by side, so the tallest of them
+// sets it. Only the wordmark varies, and only with the terminal width.
+func (m Model) headerHeight() int {
+	return max(quickSearchRows, len(m.headerLogo()))
+}
+
 // contentHeight is the number of body rows inside the frame.
 func (m Model) contentHeight() int {
-	return max(1, m.height-headerHeight-m.promptLines()-boxChrome-footerHeight)
+	return max(1, m.height-m.headerHeight()-m.promptLines()-boxChrome-footerHeight)
 }
 
 // tableHeight is how many data rows fit, once the column header is deducted.
@@ -61,11 +65,11 @@ func (m Model) tableHeight() int {
 	return max(1, m.contentHeight()-tableHeadHeight)
 }
 
-// detailBodyHeight sizes the detail viewport. It is computed from the raw
-// terminal height because the viewport must be sized in Update, before the
-// frame is drawn.
-func detailBodyHeight(height int) int {
-	return max(1, height-headerHeight-boxChrome-footerHeight)
+// detailBodyHeight sizes the detail viewport. It takes the terminal height as
+// an argument rather than reading it off the model because the viewport must
+// be sized in Update, on a resize, before the model carries the new height.
+func (m Model) detailBodyHeight(height int) int {
+	return max(1, height-m.headerHeight()-boxChrome-footerHeight)
 }
 
 // View renders the current screen.
@@ -117,23 +121,51 @@ func (m Model) chrome(caption, bottomCaption string, body []string, hints string
 
 // ------------------------------------------------------------------ header
 
-// renderHeader lays out three blocks across a fixed number of rows: session
-// context on the left, the quick-search grid in the middle, the wordmark on
-// the right. Blocks are dropped from the right as the terminal narrows.
+// contextBlockWidth is the width the session context occupies on the left.
+func (m Model) contextBlockWidth() int {
+	w := 0
+	for _, l := range m.contextLines() {
+		w = max(w, lipgloss.Width(l))
+	}
+	return min(w, contextBlockMaxWidth)
+}
+
+// headerLogo picks the largest wordmark the terminal has room for.
+//
+// The wordmark is decoration, so it yields rather than displaces: it is only
+// drawn in the space left over once the context block, the key legend and the
+// quick searches have taken theirs. On a wide terminal that is the full ANSI
+// Shadow mark; on an ordinary one the compact mark; on a narrow one nothing.
+//
+// The quick-search grid is counted whether or not there is anything in it, so
+// that recording a first search cannot change the wordmark -- and with it the
+// height of the header and the number of rows in the table below.
+func (m Model) headerLogo() []string {
+	need := m.contextBlockWidth() +
+		headerBlockGap + shortcutBlockWidth +
+		headerBlockGap + quickBlockWidth
+	for _, logo := range [][]string{logoFull, logoCompact} {
+		if need+headerBlockGap+logoWidth(logo) <= m.width {
+			return logo
+		}
+	}
+	return nil
+}
+
+// renderHeader lays out three blocks across the header rows: session context
+// on the left, the quick-search grid in the middle, the wordmark on the
+// right. Blocks are dropped from the right as the terminal narrows.
 func (m Model) renderHeader() string {
 	ctx := m.contextLines()
-	contextWidth := 0
-	for _, l := range ctx {
-		contextWidth = max(contextWidth, lipgloss.Width(l))
-	}
-	contextWidth = min(contextWidth, contextBlockMaxWidth)
+	contextWidth := m.contextBlockWidth()
 
 	// Blocks are placed from both edges inward and dropped as the terminal
 	// narrows: the wordmark first, then the quick searches, then the key
 	// legend. The context block always survives.
+	logo := m.headerLogo()
 	logoAt := -1
-	if m.width >= logoMinTerminalWidth {
-		logoAt = m.width - logoWidth
+	if len(logo) > 0 {
+		logoAt = m.width - logoWidth(logo)
 	}
 
 	rightEdge := m.width
@@ -160,8 +192,9 @@ func (m Model) renderHeader() string {
 		shortcutsAt = contextWidth + headerBlockGap
 	}
 
-	lines := make([]string, headerHeight)
-	for i := range headerHeight {
+	height := m.headerHeight()
+	lines := make([]string, height)
+	for i := range height {
 		var b strings.Builder
 		if i < len(ctx) {
 			b.WriteString(ctx[i])
@@ -174,7 +207,7 @@ func (m Model) renderHeader() string {
 			b.WriteString(spaces(quickAt - lipgloss.Width(b.String())))
 			b.WriteString(quick[i])
 		}
-		if logoAt >= 0 && i < logoHeight {
+		if logoAt >= 0 && i < len(logo) {
 			b.WriteString(spaces(max(1, logoAt-lipgloss.Width(b.String()))))
 			b.WriteString(accentStyle("").Render(logo[i]))
 		}
@@ -537,7 +570,7 @@ func (m Model) renderHelp() string {
 	note := styleDim.Render(
 		"Search runs against Microsoft Graph, not just the rows on screen.\n" +
 			"Quick-search slots keep fixed positions, so a digit always replays the same term.\n" +
-			"entra-tui is read-only: it issues GET requests and nothing else.")
+			"entra-tui reads the directory and edits only members and owners.")
 
 	body := strings.Split(strings.Join([]string{cols, "", cols2, "", note}, "\n"), "\n")
 	return m.chrome(styleHelpTitle.Render("HELP"), "", body,
