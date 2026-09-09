@@ -60,10 +60,10 @@ func TestAppRegistrationSectionOrderPutsEssentialsFirst(t *testing.T) {
 	}`)
 
 	sections := Sections(Detail{
-		Kind:            KindAppRegistrations,
-		Object:          app,
-		ResourceNames:   map[string]string{"00000003-0000-0000-c000-000000000000": "Microsoft Graph"},
-		PermissionNames: map[string]string{"perm-1": "User.Read.All"},
+		Kind:          KindAppRegistrations,
+		Object:        app,
+		ResourceNames: map[string]string{"00000003-0000-0000-c000-000000000000": "Microsoft Graph"},
+		Permissions:   map[string]PermissionInfo{"perm-1": {Value: "User.Read.All"}},
 	})
 
 	titles := sectionTitles(sections)
@@ -166,29 +166,80 @@ func TestCredentialsShowExpiryAndWarnWhenClose(t *testing.T) {
 	}
 }
 
-func TestAPIPermissionsResolveToNames(t *testing.T) {
+func TestAPIPermissionsAreOneRowPerPermission(t *testing.T) {
+	// The nested shape Graph returns reads terribly as a tree; what an
+	// administrator wants is per permission.
 	app := mustItem(t, `{"id":"o","displayName":"a","requiredResourceAccess":[
 		{"resourceAppId":"graph-app","resourceAccess":[
 			{"id":"p1","type":"Scope"},{"id":"p2","type":"Role"}]}]}`)
 
 	perms := findSection(t, Sections(Detail{
 		Kind: KindAppRegistrations, Object: app,
-		ResourceNames:   map[string]string{"graph-app": "Microsoft Graph"},
-		PermissionNames: map[string]string{"p1": "User.Read", "p2": "Directory.Read.All"},
+		ResourceNames: map[string]string{"graph-app": "Microsoft Graph"},
+		Permissions: map[string]PermissionInfo{
+			"p1": {Value: "User.Read", Description: "Sign in and read profile"},
+			"p2": {Value: "Directory.Read.All", Description: "Read directory data", AdminConsent: true},
+		},
+		GrantedScopes: map[string]bool{"User.Read": true},
+		GrantedRoles:  map[string]bool{},
 	}), "API permissions")
 
-	if len(perms.Fields) != 1 {
-		t.Fatalf("got %d resources, want 1", len(perms.Fields))
+	if len(perms.Fields) != 2 {
+		t.Fatalf("got %d rows, want one per permission", len(perms.Fields))
 	}
-	f := perms.Fields[0]
-	if f.Label != "Microsoft Graph" {
-		t.Errorf("resource label = %q, want the resolved API name", f.Label)
+	if got := perms.Columns; len(got) != 6 {
+		t.Fatalf("columns = %v, want six", got)
 	}
-	joined := strings.Join(f.Values, "\n")
-	for _, want := range []string{"User.Read", "Directory.Read.All", "Delegated", "Application"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("permissions %q missing %q", joined, want)
+
+	byName := map[string][]string{}
+	for _, f := range perms.Fields {
+		if len(f.Cells) != len(perms.Columns) {
+			t.Fatalf("row %q has %d cells for %d columns", f.Label, len(f.Cells), len(perms.Columns))
 		}
+		byName[f.Cells[1]] = f.Cells
+	}
+
+	delegated := byName["User.Read"]
+	if delegated[0] != "Microsoft Graph" {
+		t.Errorf("API column = %q, want the resolved name", delegated[0])
+	}
+	if delegated[2] != "Delegated" {
+		t.Errorf("type = %q, want Delegated", delegated[2])
+	}
+	if delegated[3] != "no" {
+		t.Errorf("admin consent = %q, want no for a user-consentable scope", delegated[3])
+	}
+	if delegated[4] != "Granted" {
+		t.Errorf("status = %q, want Granted", delegated[4])
+	}
+	if delegated[5] != "Sign in and read profile" {
+		t.Errorf("description = %q", delegated[5])
+	}
+
+	// An application permission is always admin-only, and this one has not
+	// been consented to.
+	role := byName["Directory.Read.All"]
+	if role[2] != "Application" || role[3] != "yes" {
+		t.Errorf("application row = %v, want Application/yes", role)
+	}
+	if role[4] != "Not granted" {
+		t.Errorf("status = %q, want Not granted", role[4])
+	}
+}
+
+func TestPermissionStatusUnknownWhenConsentCannotBeRead(t *testing.T) {
+	// DelegatedPermissionGrant.Read.All can be refused; the rest of the tab
+	// is still worth showing.
+	app := mustItem(t, `{"id":"o","displayName":"a","requiredResourceAccess":[
+		{"resourceAppId":"g","resourceAccess":[{"id":"p1","type":"Scope"}]}]}`)
+	perms := findSection(t, Sections(Detail{
+		Kind: KindAppRegistrations, Object: app,
+		Permissions: map[string]PermissionInfo{"p1": {Value: "User.Read"}},
+		GrantsErr:   &APIError{Status: 403},
+	}), "API permissions")
+
+	if got := perms.Fields[0].Cells[4]; got != "-" {
+		t.Errorf("status = %q, want it unknown rather than guessed", got)
 	}
 }
 
@@ -199,12 +250,40 @@ func TestUnresolvedPermissionsFallBackToGUIDs(t *testing.T) {
 		{"resourceAppId":"unknown-app","resourceAccess":[{"id":"perm-guid","type":"Scope"}]}]}`)
 	perms := findSection(t, Sections(Detail{Kind: KindAppRegistrations, Object: app}), "API permissions")
 
-	joined := strings.Join(perms.Fields[0].Values, "")
-	if !strings.Contains(joined, "perm-guid") {
-		t.Errorf("values = %q, want the raw permission id", joined)
+	row := perms.Fields[0].Cells
+	if row[0] != "unknown-app" {
+		t.Errorf("API = %q, want the raw resource id", row[0])
 	}
-	if perms.Fields[0].Label != "unknown-app" {
-		t.Errorf("label = %q, want the raw resource id", perms.Fields[0].Label)
+	if row[1] != "perm-guid" {
+		t.Errorf("permission = %q, want the raw permission id", row[1])
+	}
+}
+
+func TestStructuredPropertiesAreLeftToTheRawView(t *testing.T) {
+	// A nested object can only render here as a line of JSON, which is
+	// unreadable in a key-and-value pane.
+	app := mustItem(t, `{"id":"o","displayName":"a",
+		"someNested":{"a":1},"someList":[{"b":2}],"plain":"text","plainList":["x","y"]}`)
+
+	other := findSection(t, Sections(Detail{Kind: KindAppRegistrations, Object: app}), "Other properties")
+	for _, f := range other.Fields {
+		if strings.Contains(f.Value, "{") || strings.Contains(f.Value, "}") {
+			t.Errorf("field %q renders JSON: %q", f.Label, f.Value)
+		}
+	}
+
+	labels := map[string]string{}
+	for _, f := range other.Fields {
+		labels[f.Label] = f.Value
+	}
+	if labels["plain"] != "text" {
+		t.Error("a plain property was dropped along with the structured ones")
+	}
+	if labels["plainList"] != "x, y" {
+		t.Errorf("plainList = %q, want a list of strings kept", labels["plainList"])
+	}
+	if _, shown := labels["someNested"]; shown {
+		t.Error("a nested object was rendered as JSON")
 	}
 }
 

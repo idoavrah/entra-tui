@@ -43,6 +43,10 @@ func DefaultScopes() []string {
 		GraphResource + "/GroupMember.ReadWrite.All",
 		GraphResource + "/Group.ReadWrite.All",
 		GraphResource + "/Application.ReadWrite.All",
+		// Reads which delegated permissions an app has actually been granted.
+		// Without it the API permissions tab shows "-" for status and
+		// everything else still works.
+		GraphResource + "/DelegatedPermissionGrant.Read.All",
 	}
 }
 

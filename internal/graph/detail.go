@@ -18,9 +18,12 @@ type Field struct {
 	// Warn marks a value that deserves attention, such as a lapsed credential.
 	Warn bool
 	// ID is the directory object this field stands for, when the field is a
-	// real object rather than a property. Only these can be selected and
-	// removed.
+	// real object rather than a property. Only these can be removed.
 	ID string
+	// Cells are the row's values when its section is columnar. Label and
+	// Value stay populated for everything that reads a field as a pair --
+	// confirmations, for one.
+	Cells []string
 }
 
 // Empty reports whether the field has nothing worth rendering.
@@ -43,6 +46,19 @@ type Section struct {
 	// unbounded list of members has no business pushing an object's own
 	// fields off the top of the pane.
 	List bool
+	// Columns are the headings of a columnar list. When set, each field
+	// carries Cells in the same order.
+	Columns []string
+}
+
+// PermissionInfo describes one permission an API publishes.
+type PermissionInfo struct {
+	// Value is the permission's name, such as "User.Read.All".
+	Value string
+	// Description is what the consent prompt would say it does.
+	Description string
+	// AdminConsent reports that only an administrator can grant it.
+	AdminConsent bool
 }
 
 // Detail is everything the detail view knows about one object: the object
@@ -75,10 +91,18 @@ type Detail struct {
 	AssignmentsErr       error
 
 	// ResourceNames maps a resourceAppId to the API's display name, and
-	// PermissionNames maps a permission id to its value (e.g. "User.Read").
-	// Without these, the API permissions section is a wall of GUIDs.
-	ResourceNames   map[string]string
-	PermissionNames map[string]string
+	// Permissions maps a permission id to what it is. Without these, the
+	// API permissions section is a wall of GUIDs.
+	ResourceNames map[string]string
+	Permissions   map[string]PermissionInfo
+
+	// GrantedScopes and GrantedRoles are the permissions actually consented
+	// to, keyed by scope value and by app role id respectively -- the two
+	// halves of consent are recorded differently by Graph.
+	GrantedScopes map[string]bool
+	GrantedRoles  map[string]bool
+	// GrantsErr records why consent could not be read, if it could not.
+	GrantsErr error
 
 	// Counterpart is the paired object: an app registration's service
 	// principal, or an enterprise app's application object. Nil when the
@@ -196,7 +220,7 @@ func groupSections(d Detail) []Section {
 
 // groupsSection lists what the object is a member of.
 func groupsSection(d Detail) Section {
-	s := Section{Title: "Groups", List: true}
+	s := Section{Title: "Groups", List: true, Columns: []string{"NAME", "TYPE", "MAIL"}}
 	if d.GroupsErr != nil {
 		s.Note = "Could not read group membership: " + shortError(d.GroupsErr)
 		return s
@@ -206,9 +230,12 @@ func groupsSection(d Detail) Section {
 		return s
 	}
 	for _, g := range d.Groups {
+		name := orDash(g.String("displayName"))
 		s.Fields = append(s.Fields, Field{
-			Label: orDash(g.String("displayName")),
+			Label: name,
 			Value: describeDirectoryObject(g),
+			ID:    g.ID(),
+			Cells: []string{name, objectKind(g), orDash(g.String("mail"))},
 		})
 	}
 	if d.GroupsTruncated {
@@ -219,7 +246,8 @@ func groupsSection(d Detail) Section {
 
 // membersSection lists a group's direct members.
 func membersSection(d Detail) Section {
-	s := Section{Title: "Members", Relationship: RelMembers, List: true}
+	s := Section{Title: "Members", Relationship: RelMembers, List: true,
+		Columns: []string{"NAME", "TYPE", "SIGN-IN NAME"}}
 	if d.MembersErr != nil {
 		s.Note = "Could not read members: " + shortError(d.MembersErr)
 		return s
@@ -229,10 +257,13 @@ func membersSection(d Detail) Section {
 		return s
 	}
 	for _, m := range d.Members {
+		name := orDash(firstNonEmpty(m.String("displayName"), m.String("userPrincipalName"), m.ID()))
 		s.Fields = append(s.Fields, Field{
-			Label: orDash(firstNonEmpty(m.String("displayName"), m.String("userPrincipalName"), m.ID())),
+			Label: name,
 			Value: describeDirectoryObject(m),
 			ID:    m.ID(),
+			Cells: []string{name, objectKind(m),
+				orDash(firstNonEmpty(m.String("userPrincipalName"), m.String("mail")))},
 		})
 	}
 	if d.MembersTruncated {
@@ -370,22 +401,27 @@ func appRegistrationSections(d Detail) []Section {
 
 	auth := Section{Title: "Authentication", Fields: authenticationFields(o, used)}
 
-	creds := Section{Title: "Certificates & secrets", List: true, Fields: credentialFields(o, used)}
+	creds := Section{Title: "Certificates & secrets", List: true,
+		Columns: []string{"KIND", "NAME", "EXPIRES"}, Fields: credentialFields(o, used)}
 	if len(creds.Fields) == 0 {
 		creds.Note = "No client secrets or certificates are configured."
 	}
 
-	perms := Section{Title: "API permissions", List: true, Fields: apiPermissionFields(d, used)}
+	perms := Section{Title: "API permissions", List: true,
+		Columns: []string{"API", "PERMISSION", "TYPE", "ADMIN CONSENT", "STATUS", "DESCRIPTION"},
+		Fields:  apiPermissionFields(d, used)}
 	if len(perms.Fields) == 0 {
 		perms.Note = "No delegated or application permissions are requested."
 	}
 
-	roles := Section{Title: "App roles", List: true, Fields: appRoleFields(o, used)}
+	roles := Section{Title: "App roles", List: true,
+		Columns: []string{"ROLE", "VALUE", "MEMBER TYPES", "STATE"}, Fields: appRoleFields(o, used)}
 	if len(roles.Fields) == 0 {
 		roles.Note = "This application defines no app roles."
 	}
 
-	exposed := Section{Title: "Exposed API", List: true, Fields: exposedScopeFields(o, used)}
+	exposed := Section{Title: "Exposed API", List: true,
+		Columns: []string{"SCOPE", "CONSENT", "DESCRIPTION"}, Fields: exposedScopeFields(o, used)}
 
 	owners := ownersSection(d)
 
@@ -427,11 +463,13 @@ func enterpriseAppSections(d Detail) []Section {
 	)}
 
 	assignments := assignmentsSection(d, o)
-	roles := Section{Title: "App roles", List: true, Fields: appRoleFields(o, used)}
+	roles := Section{Title: "App roles", List: true,
+		Columns: []string{"ROLE", "VALUE", "MEMBER TYPES", "STATE"}, Fields: appRoleFields(o, used)}
 	if len(roles.Fields) == 0 {
 		roles.Note = "This application defines no app roles; assignments use the default access role."
 	}
-	exposed := Section{Title: "Exposed permissions", List: true, Fields: exposedScopeFields(o, used)}
+	exposed := Section{Title: "Exposed permissions", List: true,
+		Columns: []string{"SCOPE", "CONSENT", "DESCRIPTION"}, Fields: exposedScopeFields(o, used)}
 	owners := ownersSection(d)
 
 	return compact(essentials, props, assignments, roles, exposed, owners,
@@ -508,14 +546,21 @@ func credentialFields(o Item, used fieldSet) []Field {
 				Label: group.label + " · " + name,
 				Value: "expires " + expiry,
 				Warn:  warn,
+				Cells: []string{group.label, name, expiry},
 			})
 		}
 	}
 	return out
 }
 
-// apiPermissionFields renders requiredResourceAccess, resolving the GUIDs to
-// names where the lookup succeeded.
+// apiPermissionFields flattens requiredResourceAccess into one row per
+// permission, resolving GUIDs to names and reporting whether each has
+// actually been consented to.
+//
+// The nested shape Graph returns -- APIs, each holding a list of permission
+// ids -- reads terribly as an indented tree, and the thing an administrator
+// wants to know is per permission: what it is, whether it needs an admin, and
+// whether anyone has said yes.
 func apiPermissionFields(d Detail, used fieldSet) []Field {
 	used.add("requiredResourceAccess")
 
@@ -527,13 +572,12 @@ func apiPermissionFields(d Detail, used fieldSet) []Field {
 			continue
 		}
 		resourceAppID, _ := ra["resourceAppId"].(string)
-		resourceName := d.ResourceNames[resourceAppID]
-		if resourceName == "" {
-			resourceName = resourceAppID
+		api := d.ResourceNames[resourceAppID]
+		if api == "" {
+			api = resourceAppID
 		}
 
 		access, _ := ra["resourceAccess"].([]any)
-		var perms []string
 		for _, a := range access {
 			am, ok := a.(map[string]any)
 			if !ok {
@@ -541,22 +585,66 @@ func apiPermissionFields(d Detail, used fieldSet) []Field {
 			}
 			id, _ := am["id"].(string)
 			kind, _ := am["type"].(string)
-			label := d.PermissionNames[id]
-			if label == "" {
-				label = id
+
+			info, known := d.Permissions[id]
+			name := info.Value
+			if name == "" {
+				name = id
 			}
-			switch kind {
-			case "Scope":
-				kind = "Delegated"
-			case "Role":
-				kind = "Application"
+
+			delegated := kind == "Scope"
+			typeLabel := "Application"
+			if delegated {
+				typeLabel = "Delegated"
 			}
-			perms = append(perms, fmt.Sprintf("%-13s %s", kind, label))
+
+			consent := "-"
+			if known {
+				consent = "no"
+				if info.AdminConsent || !delegated {
+					consent = "yes"
+				}
+			}
+
+			out = append(out, Field{
+				Label: name,
+				Value: typeLabel + " · " + api,
+				Warn:  d.GrantsErr == nil && permissionStatus(d, info, id, delegated) == "Not granted",
+				Cells: []string{
+					api, name, typeLabel, consent,
+					permissionStatus(d, info, id, delegated),
+					orDash(info.Description),
+				},
+			})
 		}
-		sort.Strings(perms)
-		out = append(out, Field{Label: resourceName, Values: perms})
 	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Cells[0] != out[j].Cells[0] {
+			return out[i].Cells[0] < out[j].Cells[0]
+		}
+		return out[i].Cells[1] < out[j].Cells[1]
+	})
 	return out
+}
+
+// permissionStatus reports whether a requested permission has been consented
+// to. Delegated consent is recorded against the scope's value and application
+// consent against the role's id, so the two are looked up differently.
+func permissionStatus(d Detail, info PermissionInfo, id string, delegated bool) string {
+	if d.GrantsErr != nil || (d.GrantedScopes == nil && d.GrantedRoles == nil) {
+		return "-"
+	}
+	if delegated {
+		if info.Value != "" && d.GrantedScopes[info.Value] {
+			return "Granted"
+		}
+		return "Not granted"
+	}
+	if d.GrantedRoles[id] {
+		return "Granted"
+	}
+	return "Not granted"
 }
 
 // appRoleFields lists the roles an application defines.
@@ -585,8 +673,12 @@ func appRoleFields(o Item, used fieldSet) []Field {
 		if !enabled {
 			state = "disabled"
 		}
-		detail := fmt.Sprintf("%s · %s · %s", orDash(value), strings.Join(members, "/"), state)
-		out = append(out, Field{Label: orDash(name), Value: detail, Warn: !enabled})
+		out = append(out, Field{
+			Label: orDash(name),
+			Value: orDash(value) + " · " + state,
+			Warn:  !enabled,
+			Cells: []string{orDash(name), orDash(value), orDash(strings.Join(members, ", ")), state},
+		})
 	}
 	return out
 }
@@ -613,6 +705,7 @@ func exposedScopeFields(o Item, used fieldSet) []Field {
 		out = append(out, Field{
 			Label: orDash(value),
 			Value: strings.TrimSpace(consentLabel(consent) + " · " + desc),
+			Cells: []string{orDash(value), consentLabel(consent), orDash(desc)},
 		})
 	}
 	return out
@@ -621,7 +714,8 @@ func exposedScopeFields(o Item, used fieldSet) []Field {
 // assignmentsSection renders the users and groups an enterprise app is
 // assigned to, mapping each assignment back to the role it grants.
 func assignmentsSection(d Detail, o Item) Section {
-	s := Section{Title: "Users and groups", List: true}
+	s := Section{Title: "Users and groups", List: true,
+		Columns: []string{"PRINCIPAL", "TYPE", "ROLE"}}
 	if d.AssignmentsErr != nil {
 		s.Note = "Could not read assignments: " + shortError(d.AssignmentsErr)
 		return s
@@ -633,15 +727,17 @@ func assignmentsSection(d Detail, o Item) Section {
 
 	roleNames := appRoleNames(o)
 	for _, a := range d.Assignments {
-		name := a.String("principalDisplayName")
-		kind := a.String("principalType")
+		name := orDash(a.String("principalDisplayName"))
+		kind := orDash(a.String("principalType"))
 		role := roleNames[a.String("appRoleId")]
 		if role == "" {
 			role = "Default Access"
 		}
 		s.Fields = append(s.Fields, Field{
-			Label: orDash(name),
-			Value: fmt.Sprintf("%-6s · %s", orDash(kind), role),
+			Label: name,
+			Value: kind + " · " + role,
+			ID:    a.String("principalId"),
+			Cells: []string{name, kind, role},
 		})
 	}
 	if d.AssignmentsTruncated {
@@ -669,7 +765,8 @@ func appRoleNames(o Item) map[string]string {
 }
 
 func ownersSection(d Detail) Section {
-	s := Section{Title: "Owners", Relationship: RelOwners, List: true}
+	s := Section{Title: "Owners", Relationship: RelOwners, List: true,
+		Columns: []string{"NAME", "TYPE", "SIGN-IN NAME"}}
 	if d.OwnersErr != nil {
 		s.Note = "Could not read owners: " + shortError(d.OwnersErr)
 		return s
@@ -679,11 +776,13 @@ func ownersSection(d Detail) Section {
 		return s
 	}
 	for _, o := range d.Owners {
-		name := firstNonEmpty(o.String("displayName"), o.String("userPrincipalName"), o.ID())
+		name := orDash(firstNonEmpty(o.String("displayName"), o.String("userPrincipalName"), o.ID()))
 		s.Fields = append(s.Fields, Field{
 			Label: name,
 			Value: firstNonEmpty(o.String("userPrincipalName"), objectKind(o), ""),
 			ID:    o.ID(),
+			Cells: []string{name, objectKind(o),
+				orDash(firstNonEmpty(o.String("userPrincipalName"), o.String("mail")))},
 		})
 	}
 	return s
@@ -736,12 +835,16 @@ func fields(o Item, used fieldSet, specs ...fieldSpec) []Field {
 	return out
 }
 
-// allFields renders every property not already shown, so nothing Graph
-// returned is silently hidden.
+// allFields renders every simple property not already shown.
+//
+// Structured values are left out. A nested object or a list of them can only
+// be rendered here as a line of raw JSON, which is unreadable in a
+// key-and-value pane and belongs to whichever section understands its shape.
+// The raw JSON view still shows everything.
 func allFields(o Item, used fieldSet) []Field {
 	var out []Field
 	for _, k := range o.Keys() {
-		if strings.HasPrefix(k, "@odata") || used.has(k) {
+		if strings.HasPrefix(k, "@odata") || used.has(k) || isStructured(o[k]) {
 			continue
 		}
 		v := o.String(k)
@@ -751,6 +854,23 @@ func allFields(o Item, used fieldSet) []Field {
 		out = append(out, Field{Label: k, Value: v})
 	}
 	return out
+}
+
+// isStructured reports whether a value would render as JSON rather than as
+// text: a nested object, or a list holding them.
+func isStructured(v any) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		return true
+	case []any:
+		for _, e := range t {
+			switch e.(type) {
+			case map[string]any, []any:
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // compact drops sections that ended up with neither fields nor a note.

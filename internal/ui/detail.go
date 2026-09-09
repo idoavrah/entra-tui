@@ -26,11 +26,16 @@ const (
 
 	// tabBarHeight is the strip naming the lists.
 	tabBarHeight = 1
-	// tabMinRows is the smallest list worth showing; below this the tabs are
-	// not given any height at all.
-	tabMinRows = 3
-	// tabNameGutter separates a list entry's name from its detail.
-	tabNameGutter = 2
+	// tabChromeHeight is the table's own furniture: top rule, header,
+	// divider, bottom rule.
+	tabChromeHeight = 4
+	// tabMinRows is the smallest useful list pane: its furniture plus two
+	// rows of content.
+	tabMinRows = tabChromeHeight + 2
+	// tabCellPadding is the blank cell either side of a column's text.
+	tabCellPadding = 1
+	// tabMinColumnWidth stops a squeezed column collapsing to nothing.
+	tabMinColumnWidth = 4
 )
 
 // detailEntry is one selectable object in a list tab -- a member or an owner.
@@ -220,7 +225,7 @@ func (m Model) renderTabBar() string {
 	return bar.String()
 }
 
-// renderTabRows draws the active list, scrolled to keep the cursor in view.
+// renderTabRows draws the active list as a bordered table.
 func (m Model) renderTabRows(height int) []string {
 	section, ok := m.activeSection()
 	if !ok || height <= 0 {
@@ -232,42 +237,159 @@ func (m Model) renderTabRows(height int) []string {
 		if note == "" {
 			note = "Nothing here."
 		}
-		return []string{spaces(detailIndent) + styleDim.Render(graph.Truncate(note, boxInnerWidth(m.width)-2))}
+		return []string{spaces(detailIndent) +
+			styleDim.Render(graph.Truncate(note, boxInnerWidth(m.width)-detailIndent))}
 	}
 
-	inner := boxInnerWidth(m.width)
-	nameWidth := 0
-	for _, f := range section.Fields {
-		nameWidth = max(nameWidth, lipgloss.Width(f.Label))
+	columns := section.Columns
+	if len(columns) == 0 {
+		// A section that predates columns still renders as two.
+		columns = []string{"NAME", "DETAIL"}
 	}
-	nameWidth = clamp(nameWidth, detailLabelMin, min(detailLabelMax+8, inner/2))
-	detailWidth := max(10, inner-detailIndent-nameWidth-tabNameGutter)
+
+	width := boxInnerWidth(m.width)
+	widths := tabColumnWidths(columns, section.Fields, width)
+	rows := max(0, height-tabChromeHeight)
+
+	out := []string{
+		tabRule(widths, "┌", "┬", "┐"),
+		tabRow(headerCellsFor(columns, widths), widths, styleTableHead),
+		tabRule(widths, "├", "┼", "┤"),
+	}
 
 	offset := clamp(m.tabOffset, 0, max(0, len(section.Fields)-1))
-	rows := make([]string, 0, height)
-	for i := offset; i < len(section.Fields) && len(rows) < height; i++ {
+	for i := offset; i < len(section.Fields) && len(out)-3 < rows; i++ {
 		f := section.Fields[i]
-
-		name := bidi.Display(graph.Truncate(f.Label, nameWidth))
-		value := f.Value
-		if len(f.Values) > 0 {
-			value = strings.Join(f.Values, "; ")
-		}
-		line := spaces(detailIndent) + name +
-			spaces(nameWidth-lipgloss.Width(name)+tabNameGutter) +
-			bidi.Display(graph.Truncate(value, detailWidth))
 
 		style := styleRow
 		if f.Warn {
 			style = styleRowWarn
 		}
-		if i == m.tabCursor && section.Relationship != "" {
-			line = padRight(line, inner)
+		// Every list is walkable, whether or not its rows can be acted on:
+		// reading a long list is reason enough to move through it.
+		if i == m.tabCursor {
 			style = styleRowSelected
 		}
-		rows = append(rows, style.Render(line))
+		out = append(out, tabRow(cellsFor(f, columns), widths, style))
 	}
-	return rows
+	return append(out, tabRule(widths, "└", "┴", "┘"))
+}
+
+// cellsFor returns a field's cells, padded or trimmed to the column count.
+func cellsFor(f graph.Field, columns []string) []string {
+	cells := f.Cells
+	if len(cells) == 0 {
+		cells = []string{f.Label, f.Value}
+	}
+	out := make([]string, len(columns))
+	copy(out, cells)
+	return out
+}
+
+func headerCellsFor(columns []string, widths []int) []string {
+	out := make([]string, len(widths))
+	copy(out, columns)
+	return out
+}
+
+// tabColumnWidths sizes a list table's columns to their content, then fits
+// the result to the pane.
+//
+// Columns start at what they need and are shrunk proportionally when that
+// does not fit, so a wide description gives ground before a short status
+// column does.
+func tabColumnWidths(columns []string, fields []graph.Field, width int) []int {
+	n := len(columns)
+	natural := make([]int, n)
+	for i, c := range columns {
+		natural[i] = lipgloss.Width(c)
+	}
+	for _, f := range fields {
+		for i, cell := range cellsFor(f, columns) {
+			natural[i] = max(natural[i], lipgloss.Width(cell))
+		}
+	}
+
+	// Outer borders, one divider between each pair, and padding either side
+	// of every cell.
+	chrome := 2 + (n - 1) + 2*tabCellPadding*n
+	avail := max(n*tabMinColumnWidth, width-chrome)
+
+	total := 0
+	for _, w := range natural {
+		total += w
+	}
+
+	switch {
+	case total <= avail:
+		// Share the slack in proportion to what each column already needs.
+		// Handing it all to the widest turned a one-word MAIL column into
+		// half the pane.
+		slack := avail - total
+		handed := 0
+		for i := range natural {
+			share := slack * natural[i] / max(1, total)
+			natural[i] += share
+			handed += share
+		}
+		if rem := slack - handed; rem > 0 {
+			natural[len(natural)-1] += rem
+		}
+	default:
+		assigned := 0
+		for i := range natural {
+			natural[i] = max(tabMinColumnWidth, natural[i]*avail/total)
+			assigned += natural[i]
+		}
+		// Trim any overshoot from the widest column rather than everywhere.
+		for over := assigned - avail; over > 0; {
+			widest := 0
+			for i, w := range natural {
+				if w > natural[widest] {
+					widest = i
+				}
+			}
+			if natural[widest] <= tabMinColumnWidth {
+				break
+			}
+			take := min(over, natural[widest]-tabMinColumnWidth)
+			natural[widest] -= take
+			over -= take
+		}
+	}
+	return natural
+}
+
+// tabRule draws a horizontal border across the column layout.
+func tabRule(widths []int, left, join, right string) string {
+	parts := make([]string, len(widths))
+	for i, w := range widths {
+		parts[i] = strings.Repeat(boxHorizontal, w+2*tabCellPadding)
+	}
+	return styleBorder.Render(left + strings.Join(parts, join) + right)
+}
+
+// tabRow draws one row of cells between vertical borders.
+//
+// Each cell is fitted before it is styled: the row style is applied to the
+// finished line, and truncating afterwards would cut an escape sequence.
+func tabRow(cells []string, widths []int, style lipgloss.Style) string {
+	var b strings.Builder
+	b.WriteString(styleBorder.Render(boxVertical))
+	for i, w := range widths {
+		cell := ""
+		if i < len(cells) {
+			cell = bidi.Display(graph.Truncate(cells[i], w))
+		}
+		b.WriteString(spaces(tabCellPadding))
+		b.WriteString(style.Render(cell + spaces(w-lipgloss.Width(cell))))
+		b.WriteString(spaces(tabCellPadding))
+		if i < len(widths)-1 {
+			b.WriteString(styleBorder.Render(boxVertical))
+		}
+	}
+	b.WriteString(styleBorder.Render(boxVertical))
+	return b.String()
 }
 
 // detailHints are the keys this screen offers; the general ones live in the

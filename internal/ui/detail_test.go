@@ -358,3 +358,142 @@ func TestListsDoNotCrowdOutTheProperties(t *testing.T) {
 			len(m.detailBody()), m.contentHeight())
 	}
 }
+
+// listSection builds a columnar section for the table tests.
+func listSection(columns []string, rows ...[]string) graph.Section {
+	s := graph.Section{Title: "T", List: true, Columns: columns}
+	for _, r := range rows {
+		s.Fields = append(s.Fields, graph.Field{Label: r[0], Cells: r})
+	}
+	return s
+}
+
+func TestTabTableIsBorderedWithAHeader(t *testing.T) {
+	m := browsing(t)
+	m.detailSections = []graph.Section{listSection(
+		[]string{"NAME", "TYPE", "MAIL"},
+		[]string{"Ada", "User", "ada@x.com"},
+		[]string{"Grace", "User", "grace@x.com"},
+	)}
+	m = m.refreshDetail()
+
+	rows := m.renderTabRows(10)
+	if len(rows) < tabChromeHeight {
+		t.Fatalf("got %d lines, want at least the table furniture", len(rows))
+	}
+	if !strings.HasPrefix(rows[0], boxTopLeft) || !strings.Contains(rows[0], "┬") {
+		t.Errorf("first line %q is not a bordered rule with column joins", rows[0])
+	}
+	if !strings.Contains(rows[1], "NAME") || !strings.Contains(rows[1], "MAIL") {
+		t.Errorf("second line %q is not the header row", rows[1])
+	}
+	if !strings.Contains(rows[2], "┼") {
+		t.Errorf("third line %q is not the header divider", rows[2])
+	}
+	if !strings.HasPrefix(rows[len(rows)-1], boxBottomLeft) {
+		t.Errorf("last line %q does not close the table", rows[len(rows)-1])
+	}
+	for i, r := range rows {
+		if !strings.Contains(r, boxVertical) && !strings.Contains(r, boxHorizontal) {
+			t.Errorf("line %d has no border: %q", i, r)
+		}
+	}
+}
+
+func TestTabTableRowsAllFitThePane(t *testing.T) {
+	m := browsing(t)
+	m.detailSections = []graph.Section{listSection(
+		[]string{"NAME", "TYPE", "DESCRIPTION"},
+		[]string{"Ada", "User", strings.Repeat("a very long description ", 20)},
+	)}
+	m = m.refreshDetail()
+
+	for _, width := range []int{40, 80, 150, 220} {
+		m.width = width
+		for i, r := range m.renderTabRows(10) {
+			if w := lipgloss.Width(r); w > boxInnerWidth(width) {
+				t.Errorf("at width %d line %d is %d cells, over the %d-cell pane",
+					width, i, w, boxInnerWidth(width))
+			}
+		}
+	}
+}
+
+func TestTabColumnSlackIsSharedNotDumped(t *testing.T) {
+	// Handing every spare cell to the widest column turned a one-word MAIL
+	// column into half the pane.
+	columns := []string{"NAME", "TYPE", "MAIL"}
+	fields := []graph.Field{{Cells: []string{"Ada Lovelace", "User", "a@x.com"}}}
+
+	widths := tabColumnWidths(columns, fields, 200)
+	widest, narrowest := widths[0], widths[0]
+	for _, w := range widths {
+		widest = max(widest, w)
+		narrowest = min(narrowest, w)
+	}
+	if widest > narrowest*6 {
+		t.Errorf("widths %v: one column swallowed the slack", widths)
+	}
+}
+
+func TestEveryListIsWalkableNotJustEditableOnes(t *testing.T) {
+	// Reading a long list is reason enough to move through it, whether or
+	// not its rows can be acted on.
+	m := browsing(t)
+	m.detail = graph.Detail{
+		Kind:   graph.KindUsers,
+		Object: graph.Item{"id": "u1", "displayName": "Ada"},
+		Groups: []graph.Item{
+			{"id": "g1", "displayName": "One"},
+			{"id": "g2", "displayName": "Two"},
+			{"id": "g3", "displayName": "Three"},
+		},
+	}
+	m.screen = screenDetail
+	m.detailID = "u1"
+	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
+
+	groups, ok := m.activeSection()
+	if !ok || groups.Title != "Groups" {
+		t.Fatalf("active section = %+v, want Groups", groups)
+	}
+	if groups.Relationship != "" {
+		t.Skip("group membership became editable")
+	}
+
+	m = send(t, m, press("down"))
+	if m.tabCursor != 1 {
+		t.Errorf("cursor = %d, want a read-only list to still walk", m.tabCursor)
+	}
+	// ...but there is nothing to remove from it.
+	if _, ok := m.selectedEntry(); ok {
+		t.Error("a read-only list offered an entry to remove")
+	}
+}
+
+func TestRawViewCopiesTheWholeObject(t *testing.T) {
+	m := browsing(t)
+	m.screen = screenDetail
+	m.detailID = "u1"
+	m.detail = graph.Detail{Kind: graph.KindUsers,
+		Object: graph.Item{"id": "u1", "displayName": "Ada"}}
+	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
+
+	// The sectioned view copies the id...
+	copied := send(t, m, press("c"))
+	if copied.pendingClipboard != "u1" {
+		t.Errorf("pendingClipboard = %q, want the object id", copied.pendingClipboard)
+	}
+
+	// ...and the raw view copies what it is showing.
+	m.detailRaw = true
+	copied = send(t, m, press("c"))
+	if !strings.Contains(copied.pendingClipboard, `"displayName"`) {
+		t.Errorf("pendingClipboard = %q, want the full JSON", copied.pendingClipboard)
+	}
+	if !strings.Contains(copied.flash, "JSON") {
+		t.Errorf("flash = %q, want it to say what was copied", copied.flash)
+	}
+}

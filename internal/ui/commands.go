@@ -341,9 +341,20 @@ func (m *Model) loadDetail(res graph.Resource, id string) tea.Cmd {
 			go func() {
 				defer wg.Done()
 				c := resolveCounterpart(reqCtx, client, res.Kind, appID)
+
+				// An app registration's consent lives on its service
+				// principal, which is the counterpart just resolved -- so the
+				// grant lookup rides along rather than repeating the search.
+				var scopes, roles map[string]bool
+				var grantsErr error
+				if c != nil && res.Kind == graph.KindAppRegistrations {
+					scopes, roles, grantsErr = client.GrantedPermissions(reqCtx, c.ID)
+				}
+
 				mu.Lock()
 				defer mu.Unlock()
 				d.Counterpart = c
+				d.GrantedScopes, d.GrantedRoles, d.GrantsErr = scopes, roles, grantsErr
 			}()
 		}
 
@@ -354,7 +365,7 @@ func (m *Model) loadDetail(res graph.Resource, id string) tea.Cmd {
 				resources, permissions := client.ResolvePermissions(reqCtx, object)
 				mu.Lock()
 				defer mu.Unlock()
-				d.ResourceNames, d.PermissionNames = resources, permissions
+				d.ResourceNames, d.Permissions = resources, permissions
 			}()
 		}
 

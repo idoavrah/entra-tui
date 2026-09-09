@@ -779,22 +779,35 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	m.detailTab, m.tabCursor, m.tabOffset = 0, 0, 0
 	m = m.refreshDetail()
 	m.err = nil
-	return m, m.loadDetail(res, c.ID)
+	m.loading = true
+
+	// The table behind the pane is loaded too. Without it, backing out of a
+	// paired object landed on an empty list: the collection had been swapped
+	// for the counterpart's view but never populated.
+	return m, tea.Batch(m.loadDetail(res, c.ID), m.loadFirst())
 }
 
 func (m Model) copyCurrentID() (tea.Model, tea.Cmd) {
-	var id string
-	if m.screen == screenDetail {
-		id = m.detailID
-	} else if item, _, ok := m.coll.at(m.cursor); ok {
-		id = item.ID()
+	payload, what := "", ""
+	switch {
+	// In the raw view the whole object is what is on screen, so that is what
+	// copying it should hand over.
+	case m.screen == screenDetail && m.detailRaw && m.detail.Object != nil:
+		payload, what = m.detail.Object.JSON(), "copied the full JSON"
+	case m.screen == screenDetail:
+		payload, what = m.detailID, "copied "+m.detailID
+	default:
+		if item, _, ok := m.coll.at(m.cursor); ok {
+			payload, what = item.ID(), "copied "+item.ID()
+		}
 	}
-	if id == "" {
+	if payload == "" {
 		return m, nil
 	}
-	m.pendingClipboard = id
+
+	m.pendingClipboard = payload
 	return m, tea.Batch(
-		m.flashFor("copied "+id),
+		m.flashFor(what),
 		func() tea.Msg { return clipboardSentMsg{} },
 	)
 }

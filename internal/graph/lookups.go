@@ -48,9 +48,8 @@ func (c *Client) collect(ctx context.Context, q Query, limit int) ([]Item, bool,
 // share; theirs is registeredOwners, which is why it needs its own call.
 func (c *Client) RegisteredOwners(ctx context.Context, deviceID string) ([]Item, error) {
 	page, err := c.List(ctx, Query{
-		Path:   fmt.Sprintf("devices/%s/registeredOwners", deviceID),
-		Select: []string{"id", "displayName", "userPrincipalName"},
-		Top:    50,
+		Path: fmt.Sprintf("devices/%s/registeredOwners", deviceID),
+		Top:  50,
 	})
 	if err != nil {
 		return nil, err
@@ -64,29 +63,37 @@ func (c *Client) RegisteredOwners(ctx context.Context, deviceID string) ([]Item,
 // transitive closure: showing the groups someone was actually added to is
 // what an administrator is looking for, and transitiveMemberOf on a
 // well-nested tenant returns an unhelpfully long list.
+//
+// No $select is sent. memberOf returns a heterogeneous collection -- groups
+// alongside directory roles -- typed as directoryObject, and naming a
+// group-only property like groupTypes makes Graph reject the whole request.
+// The default projection carries displayName and the @odata.type annotation
+// that tells the two apart, which is all this needs.
 func (c *Client) MemberOf(ctx context.Context, path, id string) ([]Item, bool, error) {
 	return c.collect(ctx, Query{
-		Path:   fmt.Sprintf("%s/%s/memberOf", strings.Trim(path, "/"), id),
-		Select: []string{"id", "displayName", "mail", "groupTypes", "securityEnabled", "mailEnabled"},
-		Top:    100,
+		Path: fmt.Sprintf("%s/%s/memberOf", strings.Trim(path, "/"), id),
+		Top:  100,
 	}, maxMemberOf)
 }
 
 // Members lists the direct members of a group.
+//
+// As with MemberOf, no $select is sent: members can be users, groups, service
+// principals or devices, and a user-only property in the projection fails the
+// request for the whole collection.
 func (c *Client) Members(ctx context.Context, groupID string) ([]Item, bool, error) {
 	return c.collect(ctx, Query{
-		Path:   fmt.Sprintf("groups/%s/members", groupID),
-		Select: []string{"id", "displayName", "userPrincipalName", "mail", "accountEnabled", "userType"},
-		Top:    100,
+		Path: fmt.Sprintf("groups/%s/members", groupID),
+		Top:  100,
 	}, maxMembers)
 }
 
-// Owners lists the owners of a directory object.
+// Owners lists the owners of a directory object. Owners are also a
+// heterogeneous collection, so it too goes without a projection.
 func (c *Client) Owners(ctx context.Context, path, id string) ([]Item, error) {
 	page, err := c.List(ctx, Query{
-		Path:   fmt.Sprintf("%s/%s/owners", strings.Trim(path, "/"), id),
-		Select: []string{"id", "displayName", "userPrincipalName"},
-		Top:    50,
+		Path: fmt.Sprintf("%s/%s/owners", strings.Trim(path, "/"), id),
+		Top:  50,
 	})
 	if err != nil {
 		return nil, err
@@ -149,9 +156,9 @@ func (c *Client) ApplicationByAppID(ctx context.Context, appID string) (Item, er
 // permission it grants. Failures are swallowed: an unresolvable API leaves
 // its GUIDs on screen, which is worse than names but better than an error
 // where the detail view should be.
-func (c *Client) ResolvePermissions(ctx context.Context, o Item) (resources map[string]string, permissions map[string]string) {
+func (c *Client) ResolvePermissions(ctx context.Context, o Item) (resources map[string]string, permissions map[string]PermissionInfo) {
 	resources = map[string]string{}
-	permissions = map[string]string{}
+	permissions = map[string]PermissionInfo{}
 
 	entries, _ := o["requiredResourceAccess"].([]any)
 	seen := map[string]bool{}
@@ -176,15 +183,18 @@ func (c *Client) ResolvePermissions(ctx context.Context, o Item) (resources map[
 		}
 
 		resources[appID] = sp.String("displayName")
-		collectPermissionNames(sp, "oauth2PermissionScopes", permissions)
-		collectPermissionNames(sp, "appRoles", permissions)
+		collectPermissions(sp, "oauth2PermissionScopes", permissions)
+		collectPermissions(sp, "appRoles", permissions)
 	}
 	return resources, permissions
 }
 
-// collectPermissionNames maps permission ids to their values from a service
+// collectPermissions maps permission ids to what they are, from a service
 // principal's published catalogue.
-func collectPermissionNames(sp Item, key string, into map[string]string) {
+//
+// Application permissions (appRoles) always require an administrator;
+// delegated ones (oauth2PermissionScopes) say so in their type.
+func collectPermissions(sp Item, key string, into map[string]PermissionInfo) {
 	entries, _ := sp[key].([]any)
 	for _, entry := range entries {
 		m, ok := entry.(map[string]any)
@@ -192,11 +202,60 @@ func collectPermissionNames(sp Item, key string, into map[string]string) {
 			continue
 		}
 		id, _ := m["id"].(string)
+		if id == "" {
+			continue
+		}
 		value, _ := m["value"].(string)
-		if id != "" && value != "" {
-			into[id] = value
+		description, _ := m["adminConsentDisplayName"].(string)
+		if description == "" {
+			description, _ = m["displayName"].(string)
+		}
+
+		adminConsent := key == "appRoles"
+		if consent, ok := m["type"].(string); ok && consent == "Admin" {
+			adminConsent = true
+		}
+		into[id] = PermissionInfo{Value: value, Description: description, AdminConsent: adminConsent}
+	}
+}
+
+// GrantedPermissions reports which permissions have actually been consented
+// to for an application's service principal.
+//
+// Delegated consent lives in oauth2PermissionGrants as space-separated scope
+// values; application consent lives in appRoleAssignments as role ids. The
+// two are keyed differently, so they are returned separately rather than
+// merged into a lie.
+func (c *Client) GrantedPermissions(ctx context.Context, spID string) (scopes, roles map[string]bool, err error) {
+	scopes, roles = map[string]bool{}, map[string]bool{}
+
+	grants, _, err := c.collect(ctx, Query{
+		Path: fmt.Sprintf("servicePrincipals/%s/oauth2PermissionGrants", spID),
+		Top:  100,
+	}, 200)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, g := range grants {
+		for _, scope := range strings.Fields(g.String("scope")) {
+			scopes[scope] = true
 		}
 	}
+
+	assignments, _, err := c.collect(ctx, Query{
+		Path: fmt.Sprintf("servicePrincipals/%s/appRoleAssignments", spID),
+		Top:  100,
+	}, 200)
+	if err != nil {
+		// Delegated consent is still worth reporting on its own.
+		return scopes, roles, nil
+	}
+	for _, a := range assignments {
+		if id := a.String("appRoleId"); id != "" {
+			roles[id] = true
+		}
+	}
+	return scopes, roles, nil
 }
 
 // escapeODataString escapes a value for use inside an OData string literal,
