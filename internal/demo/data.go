@@ -121,6 +121,11 @@ type Data struct {
 	// GrantedScopes and GrantedRoles model consent on a service principal.
 	GrantedScopes map[string][]string
 	GrantedRoles  map[string][]string
+
+	// ODataType is every object's Graph type, keyed by id. Heterogeneous
+	// collections are served with this annotation because that is the only
+	// thing telling a nested group from a user in one.
+	ODataType map[string]string
 }
 
 // Generate builds a deterministic directory. The same seed always produces
@@ -141,8 +146,26 @@ func Generate(seed int64) *Data {
 	d.Applications = generateApplications(r)
 	d.ServicePrincipals = generateServicePrincipals(d.Applications)
 	d.Devices = generateDevices(r)
+	d.indexTypes()
 	d.linkRelationships(r)
 	return d
+}
+
+// indexTypes records what each generated object is, so a relationship can be
+// served with the @odata.type Graph puts on it.
+func (d *Data) indexTypes() {
+	d.ODataType = map[string]string{}
+	for kind, set := range map[string][]graph.Item{
+		"user":             d.Users,
+		"group":            d.Groups,
+		"application":      d.Applications,
+		"servicePrincipal": d.ServicePrincipals,
+		"device":           d.Devices,
+	} {
+		for _, it := range set {
+			d.ODataType[it.ID()] = "#microsoft.graph." + kind
+		}
+	}
 }
 
 func generateUsers(r *rand.Rand) []graph.Item {

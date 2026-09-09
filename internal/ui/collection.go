@@ -60,12 +60,18 @@ func (c *collection) appendPage(p *graph.Page) {
 	c.sort()
 }
 
-// sort orders the collection by display name.
+// sort orders a searched collection by display name.
 //
-// This is done client-side because Graph refuses $orderby alongside $search,
-// so a searched view would otherwise arrive in relevance order. Sorting here
-// means every view is ordered the same way whether or not a search is active.
+// Only a searched one. Graph refuses $orderby alongside $search, so results
+// would otherwise arrive in relevance order, which is not an order anyone can
+// scan; a handful of matches is worth sorting client-side. An unfiltered view
+// is left in the order the directory returned it: sorting it would mean
+// re-ordering the rows already on screen every time a page arrives, moving
+// the row under the cursor while it is being read.
 func (c *collection) sort() {
+	if c.search == "" {
+		return
+	}
 	sort.SliceStable(c.entries, func(i, j int) bool {
 		if c.entries[i].sortKey != c.entries[j].sortKey {
 			return c.entries[i].sortKey < c.entries[j].sortKey

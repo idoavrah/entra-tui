@@ -15,6 +15,15 @@ func usersCollection(t *testing.T) *collection {
 	return newCollection(res)
 }
 
+// searchedCollection is a users collection with a search term, which is the
+// only kind that gets sorted.
+func searchedCollection(t *testing.T) *collection {
+	t.Helper()
+	c := usersCollection(t)
+	c.search = "a"
+	return c
+}
+
 func page(items []graph.Item, next string, total int64) *graph.Page {
 	return &graph.Page{Items: items, NextLink: next, TotalCount: total}
 }
@@ -59,8 +68,8 @@ func TestAppendPageTracksPagingState(t *testing.T) {
 	}
 }
 
-func TestCollectionSortsByNameCaseInsensitively(t *testing.T) {
-	c := usersCollection(t)
+func TestSearchResultsAreSortedByNameCaseInsensitively(t *testing.T) {
+	c := searchedCollection(t)
 	c.appendPage(page([]graph.Item{
 		user("z", "Zoe"), user("a", "ada"), user("m", "Mike"),
 	}, "", 3))
@@ -74,8 +83,8 @@ func TestCollectionSortsByNameCaseInsensitively(t *testing.T) {
 	}
 }
 
-func TestLaterPagesMergeIntoSortOrder(t *testing.T) {
-	c := usersCollection(t)
+func TestLaterPagesOfSearchResultsMergeIntoSortOrder(t *testing.T) {
+	c := searchedCollection(t)
 	c.appendPage(page([]graph.Item{user("b", "Bob"), user("d", "Dave")}, "n", -1))
 	c.appendPage(page([]graph.Item{user("c", "Carol"), user("a", "Alice")}, "", -1))
 
@@ -108,7 +117,7 @@ func TestSortKeyFallsBackWhenThereIsNoDisplayName(t *testing.T) {
 }
 
 func TestSortIsStableForDuplicateNames(t *testing.T) {
-	c := usersCollection(t)
+	c := searchedCollection(t)
 	c.appendPage(page([]graph.Item{
 		user("b", "Same"), user("a", "Same"), user("c", "Same"),
 	}, "", 3))
@@ -129,7 +138,7 @@ func TestSortIsStableForDuplicateNames(t *testing.T) {
 }
 
 func TestIndexOfFindsARowByIdentity(t *testing.T) {
-	c := usersCollection(t)
+	c := searchedCollection(t)
 	c.appendPage(page([]graph.Item{user("b", "Bob"), user("a", "Alice")}, "", 2))
 
 	if got := c.indexOf("b"); got != 1 {
@@ -170,5 +179,21 @@ func TestAtBoundsCheck(t *testing.T) {
 	}
 	if _, _, ok := c.at(0); !ok {
 		t.Error("at(0) returned !ok for a present row")
+	}
+}
+
+func TestUnsearchedRowsKeepTheOrderGraphReturned(t *testing.T) {
+	// Sorting an unfiltered view would re-order what is already on screen
+	// every time a page lands, moving the row under the cursor.
+	c := usersCollection(t)
+	c.appendPage(page([]graph.Item{user("z", "Zoe"), user("a", "ada")}, "n", -1))
+	c.appendPage(page([]graph.Item{user("m", "Mike")}, "", -1))
+
+	want := []string{"Zoe", "ada", "Mike"}
+	got := names(c)
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v -- the directory's own order", got, want)
+		}
 	}
 }

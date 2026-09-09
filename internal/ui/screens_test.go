@@ -134,20 +134,26 @@ func describe(t *testing.T, server *demo.Server, m Model) Model {
 	next, _ := m.openDetail()
 	m = next.(Model)
 
+	// The pane waits for its object, so the id to read is the one the open
+	// is pending on rather than one already installed.
+	id := m.detailID
+	if id == "" {
+		id = m.pending.id
+	}
 	client := server.Client()
 	ctx := context.Background()
-	object, err := client.Get(ctx, m.coll.res.Path+"/"+m.detailID, nil)
+	object, err := client.Get(ctx, m.coll.res.Path+"/"+id, nil)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 
 	d := graph.Detail{Kind: m.coll.res.Kind, Object: object}
-	d.Owners, _ = client.Owners(ctx, m.coll.res.Path, m.detailID)
+	d.Owners, _ = client.Owners(ctx, m.coll.res.Path, id)
 	switch d.Kind {
 	case graph.KindUsers:
-		d.Groups, d.GroupsTruncated, d.GroupsErr = client.MemberOf(ctx, m.coll.res.Path, m.detailID)
+		d.Groups, d.GroupsTruncated, d.GroupsErr = client.MemberOf(ctx, m.coll.res.Path, id)
 	case graph.KindGroups:
-		d.Members, d.MembersTruncated, d.MembersErr = client.Members(ctx, m.detailID)
+		d.Members, d.MembersTruncated, d.MembersErr = client.Members(ctx, id)
 	case graph.KindAppRegistrations:
 		d.ResourceNames, d.Permissions = client.ResolvePermissions(ctx, object)
 		if sp, err := client.ServicePrincipalByAppID(ctx, object.String("appId")); err == nil && sp != nil {

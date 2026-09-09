@@ -161,7 +161,7 @@ func (m Model) handleWriteDone(msg writeDoneMsg) (tea.Model, tea.Cmd) {
 
 	m = m.closeModal()
 	m.detailLoading = true
-	return m, tea.Batch(m.flashFor(msg.summary), m.loadDetail(m.coll.res, m.detailID))
+	return m, tea.Batch(m.flashFor(msg.summary), m.loadDetail(m.detailRes, m.detailID))
 }
 
 // ---------------------------------------------------------------- rendering

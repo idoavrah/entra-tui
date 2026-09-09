@@ -4,7 +4,7 @@ Signed   demo                                   ~ home    ↑↓ move           
 Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
                                                 q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
-┌──────────────────────────────────────────────────────────────────────────────── Users · 100 of 420 · ↑name ────────────────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────────────────── Users · 100 of 420 ────────────────────────────────────────────────────────────────────────────────────┐
 │NAME                                                 USER PRINCIPAL NAME                                                     TYPE   ENABLED DEPARTMENT                                      │
 │Bram Ashvale                                         bram.ashvale92@aetherforge.onmicrosoft.com                              Member yes     Audio                                           │
 │Bram Duskbane                                        bram.duskbane148@aetherforge.onmicrosoft.com                            Member yes     Narrative                                       │
@@ -36,7 +36,7 @@ Status   connected                              ? help    ←→ tab            
 │Corvin Blackwater                                    corvin.blackwater378@aetherforge.onmicrosoft.com                        Member yes     Engine                                          │
 │Corvin Duskbane                                      corvin.duskbane154@aetherforge.onmicrosoft.com                          Member yes     Art & Animation                                 │
 │Corvin Emberfall                                     corvin.emberfall42@aetherforge.onmicrosoft.com                          Member yes     Live Ops                                        │
-│Corvin Gildenmoor                                    corvin.gildenmoor406@aetherforge.onmicrosoft.com                        Member yes     Engine                                          │
 └─────────────────────────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────────────────────────┘
 
-enter describe  ·  1-0 replay a search  ·  r refresh
+enter describe  ·  0-9 replay a search  ·  r refresh
+Dashboard › Users

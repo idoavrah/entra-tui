@@ -4,7 +4,7 @@ Signed   demo                                   ~ home    ↑↓ move           
 Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
                                                 q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
-┌──────────────────────────────────────────────────────────────────────────── Enterprise apps · 86 of 86 · ↑name ────────────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────────────── Enterprise apps · 86 of 86 ────────────────────────────────────────────────────────────────────────────────┐
 │NAME                                                                          APP ID                               TYPE                        SIGN-IN  ASSIGN REQ SSO                      │
 │Ember & Ash — Crash Triage                                                    00000034-1111-2222-3333-444444444444 ManagedIdentity             yes      yes        oidc                     │
 │Ember & Ash — Crash Triage                                                    00000082-1111-2222-3333-444444444444 ManagedIdentity             yes      yes        oidc                     │
@@ -36,7 +36,7 @@ Status   connected                              ? help    ←→ tab            
 │Hollow Tide — Matchmaking                                                     00000043-1111-2222-3333-444444444444 ManagedIdentity             yes      no         oidc                     │
 │Hollow Tide — Matchmaking                                                     00000060-1111-2222-3333-444444444444 Application                 yes      yes        saml                     │
 │Hollow Tide — Player Telemetry                                                00000038-1111-2222-3333-444444444444 Legacy                      yes      yes        -                        │
-│Hollow Tide — Save Sync                                                       00000066-1111-2222-3333-444444444444 Application                 yes      yes        saml                     │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-enter describe  ·  1-0 replay a search  ·  r refresh
+enter describe  ·  0-9 replay a search  ·  r refresh
+Dashboard › Enterprise apps

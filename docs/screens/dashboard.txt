@@ -36,7 +36,7 @@ Status   connected                              ? help    ←→ tab            
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
-│                                                                                                                                                                                            │
 └──────────────────────────────────────────────────────────────────────── totals from Microsoft Graph — r refreshes ─────────────────────────────────────────────────────────────────────────┘
 
 enter open  ·  1-5 open directly  ·  r refresh totals
+Dashboard

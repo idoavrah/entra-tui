@@ -79,6 +79,21 @@ func (m Model) activeSection() (graph.Section, bool) {
 	return lists[clamp(m.detailTab, 0, len(lists)-1)], true
 }
 
+// linkTarget is the object under the tab cursor that has a view of its own,
+// which is what enter opens.
+func (m Model) linkTarget() (graph.Resource, graph.Field, bool) {
+	section, ok := m.activeSection()
+	if !ok || m.tabCursor < 0 || m.tabCursor >= len(section.Fields) {
+		return graph.Resource{}, graph.Field{}, false
+	}
+	f := section.Fields[m.tabCursor]
+	res, known := graph.Lookup(string(f.Kind))
+	if f.ID == "" || f.ID == m.detailID || !known {
+		return graph.Resource{}, graph.Field{}, false
+	}
+	return res, f, true
+}
+
 // selectedEntry is the object under the cursor in the active tab, when that
 // tab lists something that can be added to or removed.
 func (m Model) selectedEntry() (detailEntry, bool) {
@@ -141,7 +156,7 @@ func (m Model) renderDetail() string {
 		mode = "raw json"
 	}
 
-	caption := accentStyle(m.coll.res.Accent).Render(m.detail.Kind.Title()) +
+	caption := accentStyle(m.detailRes.Accent).Render(m.detail.Kind.Title()) +
 		styleDim.Render(" · ") + styleContextVal.Render(bidi.Display(name)) +
 		styleDim.Render(" · "+mode)
 
@@ -417,7 +432,13 @@ func tabRow(cells []string, widths []int, style lipgloss.Style) string {
 // detailHints are the actions this screen offers. Moving around is the same
 // everywhere, so the keys that do it are in the header, not here.
 func (m Model) detailHints() string {
-	pairs := [][2]string{{"R", "raw json"}}
+	pairs := [][2]string{}
+	// Opening the row under the cursor is the first thing to say when it is
+	// possible: a membership list is a list of objects worth reading.
+	if _, _, ok := m.linkTarget(); ok {
+		pairs = append(pairs, [2]string{"enter", "open"})
+	}
+	pairs = append(pairs, [2]string{"R", "raw json"})
 
 	if m.detail.Kind == graph.KindAppRegistrations || m.detail.Kind == graph.KindEnterpriseApps {
 		pairs = append(pairs, [2]string{"x", m.pairHint()})

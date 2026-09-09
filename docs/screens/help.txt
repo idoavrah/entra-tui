@@ -17,7 +17,7 @@ Status   connected                              ? help    ←→ tab            
 │                                                                                                                                                                                            │
 │SEARCH                                DATA                                                                                                                                                  │
 │  /           search the directory      r           refresh from Graph                                                                                                                      │
-│  1-0         replay a slot             R           raw json (detail)                                                                                                                       │
+│  0-9         replay a slot             R           raw json (detail)                                                                                                                       │
 │  esc         clear the search          c           copy object id                                                                                                                          │
 │  :           command prompt            a           add to the list in front                                                                                                                │
 │                                        d           remove the selected row                                                                                                                 │
@@ -36,7 +36,7 @@ Status   connected                              ? help    ←→ tab            
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
-│                                                                                                                                                                                            │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 any key back
+Dashboard › Help

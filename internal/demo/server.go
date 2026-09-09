@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -241,16 +242,34 @@ func (s *Server) relationship(w http.ResponseWriter, r *http.Request, id, rel st
 	}
 
 	// The heterogeneous relationships are typed as directoryObject, so only
-	// its properties may be selected.
+	// its properties may be selected -- and every object in one carries the
+	// @odata.type saying what it actually is.
 	if isHeterogeneous(rel) {
 		if bad := s.checkSelect(r.URL.Query(), directoryObjectProperties); bad != "" {
 			writeUnknownProperty(w, bad)
 			return
 		}
+		items = s.annotate(items)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"value": project(items, r.URL.Query().Get("$select")),
 	})
+}
+
+// annotate stamps each object with its Graph type. A caller reading members
+// or owners has nothing else to go on: the collection is declared as
+// directoryObject, so the properties that would give an object away are not
+// even selectable.
+func (s *Server) annotate(items []graph.Item) []graph.Item {
+	out := make([]graph.Item, 0, len(items))
+	for _, it := range items {
+		copied := maps.Clone(it)
+		if t := s.data.ODataType[it.ID()]; t != "" {
+			copied["@odata.type"] = t
+		}
+		out = append(out, copied)
+	}
+	return out
 }
 
 func isHeterogeneous(rel string) bool {

@@ -4,7 +4,7 @@ Signed   demo                                   ~ home    ↑↓ move           
 Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
                                                 q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
-┌─────────────────────────────────────────────────────────────────────────────── Devices · 100 of 160 · ↑name ───────────────────────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────────────────────── Devices · 100 of 160 ───────────────────────────────────────────────────────────────────────────────────┐
 │NAME                                                                       OS                      VERSION                 JOIN TYPE                     COMPLIANT MANAGED ENABLED LAST SEEN│
 │ANVIL-AND-1003                                                             Android                 14                      Microsoft Entra joined        yes       yes     yes     ···      │
 │ANVIL-AND-1053                                                             Android                 14                      Registered                    yes       yes     yes     ···      │
@@ -36,7 +36,7 @@ Status   connected                              ? help    ←→ tab            
 │ANVIL-MAC-1121                                                             macOS                   14.5                    Hybrid joined                 yes       yes     yes     ···      │
 │ANVIL-MAC-1126                                                             macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···      │
 │ANVIL-MAC-1156                                                             macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···      │
-│ANVIL-WIN-1004                                                             Windows                 10.0.19045              Hybrid joined                 yes       yes     yes     ···      │
 └─────────────────────────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────────────────────────┘
 
-enter describe  ·  1-0 replay a search  ·  r refresh
+enter describe  ·  0-9 replay a search  ·  r refresh
+Dashboard › Devices

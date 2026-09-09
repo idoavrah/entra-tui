@@ -63,6 +63,29 @@ type Options struct {
 	Identity auth.Identity
 }
 
+// pendingOpen is an object being read for a pane that is not on screen yet.
+type pendingOpen struct {
+	res graph.Resource
+	id  string
+	// link marks an open reached from a list inside another pane, which is
+	// pushed onto the stack so esc comes back to it.
+	link bool
+}
+
+// detailFrame is a pane esc can back out to: what it showed, and where the
+// reader had got to in it.
+type detailFrame struct {
+	res      graph.Resource
+	id       string
+	raw      bool
+	detail   graph.Detail
+	sections []graph.Section
+	tab      int
+	cursor   int
+	offset   int
+	vpOffset int
+}
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	ctx  context.Context
@@ -111,10 +134,16 @@ type Model struct {
 	detailSections []graph.Section
 	detailRaw      bool
 	detailLoading  bool
-	// detailPendingID is the object a -delay open is waiting on. While it is
-	// set the table is still on screen and the pane has not been built.
-	detailPendingID string
-	detailVP        viewport.Model
+	// pending is the object an open is waiting on. Until the read lands the
+	// screen still shows what it showed before, so a pane is drawn once,
+	// already populated, rather than filling in under the reader.
+	pending pendingOpen
+	// detailRes is the view describing the object in the pane, which is the
+	// browse collection's until a link is followed out of it.
+	detailRes graph.Resource
+	// detailStack is the panes esc backs out to, innermost last.
+	detailStack []detailFrame
+	detailVP    viewport.Model
 	// detailTab is the list tab in front; tabCursor and tabOffset are the
 	// selection and scroll position within it.
 	detailTab int
@@ -402,12 +431,18 @@ func (m Model) handlePage(msg pageMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleDetail(msg detailMsg) (tea.Model, tea.Cmd) {
-	if msg.gen != m.gen || msg.detail.Object.ID() != m.detailID {
+	id := msg.detail.Object.ID()
+	if msg.gen != m.gen || (id != m.detailID && id != m.pending.id) {
 		return m, nil
 	}
 	m.detailLoading = false
-	// A -delay open has not built the pane yet: this is where it opens.
-	if m.detailPendingID == msg.detail.Object.ID() {
+	// An open that was waiting for its object: this is where the pane is
+	// built, already populated.
+	if m.pending.id == id {
+		if m.pending.link {
+			m.detailStack = append(m.detailStack, m.detailFrame())
+		}
+		m.detailRes = m.pending.res
 		return m.enterDetail(msg.detail), nil
 	}
 	m.detail = msg.detail
@@ -512,7 +547,7 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Digits replay this view's recent searches. Views are changed with ":"
 	// or from the dashboard, which leaves the number row free for the thing
 	// a directory admin repeats most: the same lookups.
-	if n, ok := digitIndex(msg.String()); ok {
+	if n, ok := slotIndex(msg.String()); ok {
 		return m.replaySearch(n)
 	}
 	return m, nil
@@ -547,7 +582,16 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Delete):
 		return m.openRemoveModal()
 
+	case key.Matches(msg, keys.Enter):
+		return m.followLink()
+
 	case key.Matches(msg, keys.Back):
+		// Esc unwinds one link at a time, and only leaves the pane once
+		// there is nothing left to come back to.
+		if popped, ok := m.popDetail(); ok {
+			return popped, nil
+		}
+		m.cancelPendingDetail()
 		m.screen = screenBrowse
 		m.detail = graph.Detail{}
 		m.detailSections = nil
@@ -764,7 +808,7 @@ func (m Model) reload() (tea.Model, tea.Cmd) {
 // enterDetail installs an object in the detail pane and shows it.
 func (m Model) enterDetail(d graph.Detail) Model {
 	m.screen = screenDetail
-	m.detailPendingID = ""
+	m.pending = pendingOpen{}
 	m.detailID = d.Object.ID()
 	m.detailRaw = false
 	m.detail = d
@@ -784,6 +828,8 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	// the object without a projection and gathers the follow-up lookups --
 	// owners, assignments, permission names -- that make it intelligible.
 	id := item.ID()
+	m.detailRes = m.coll.res
+	m.detailStack = nil
 	if id == "" {
 		return m.enterDetail(graph.Detail{Kind: m.coll.res.Kind, Object: item}), nil
 	}
@@ -793,7 +839,7 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	// once. -nodelay opens it on the row's handful of columns instead, and
 	// replaces every value a moment later.
 	if !m.opts.NoDelay {
-		m.detailID, m.detailPendingID = id, id
+		m.pending = pendingOpen{res: m.coll.res, id: id}
 		return m, m.loadDetail(m.coll.res, id)
 	}
 
@@ -801,12 +847,65 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	return m, m.loadDetail(m.coll.res, id)
 }
 
-// cancelPendingDetail abandons a -delay open. Moving off the row or leaving
-// the view means the pane is no longer wanted, and it must not spring open
-// when the read finally lands.
+// followLink opens the object under the tab cursor in a pane of its own,
+// keeping the pane it came from on the stack for esc to return to.
+//
+// The whole point of a membership list is the objects in it; reading one had
+// meant going back to its own view and searching for it by name.
+func (m Model) followLink() (tea.Model, tea.Cmd) {
+	res, f, ok := m.linkTarget()
+	if !ok {
+		return m, nil
+	}
+
+	m.detailLoading = true
+	stub := graph.Detail{Kind: f.Kind, Object: graph.Item{"id": f.ID, "displayName": f.Label}}
+	if m.opts.NoDelay {
+		m.detailStack = append(m.detailStack, m.detailFrame())
+		m.detailRes = res
+		return m.enterDetail(stub), m.loadDetail(res, f.ID)
+	}
+	// The pane on screen stays put, and stays usable, until the read lands.
+	m.pending = pendingOpen{res: res, id: f.ID, link: true}
+	return m, m.loadDetail(res, f.ID)
+}
+
+// detailFrame snapshots the pane on screen so esc can come back to it.
+func (m Model) detailFrame() detailFrame {
+	return detailFrame{
+		res: m.detailRes, id: m.detailID, raw: m.detailRaw,
+		detail: m.detail, sections: m.detailSections,
+		tab: m.detailTab, cursor: m.tabCursor, offset: m.tabOffset,
+		vpOffset: m.detailVP.YOffset,
+	}
+}
+
+// popDetail returns to the pane esc was pressed from, and reports whether
+// there was one.
+func (m Model) popDetail() (Model, bool) {
+	if len(m.detailStack) == 0 {
+		return m, false
+	}
+	f := m.detailStack[len(m.detailStack)-1]
+	m.detailStack = m.detailStack[:len(m.detailStack)-1]
+
+	m.pending = pendingOpen{}
+	m.detailLoading = false
+	m.detailRes, m.detailID, m.detailRaw = f.res, f.id, f.raw
+	m.detail, m.detailSections = f.detail, f.sections
+	m.detailVP = viewport.New(boxInnerWidth(m.width), m.detailBodyHeight(m.height))
+	m.detailTab, m.tabCursor, m.tabOffset = f.tab, f.cursor, f.offset
+	m = m.refreshDetail()
+	m.detailVP.SetYOffset(f.vpOffset)
+	return m, true
+}
+
+// cancelPendingDetail abandons an open that has not arrived. Moving off the
+// row or leaving the view means the pane is no longer wanted, and it must not
+// spring open when the read finally lands.
 func (m *Model) cancelPendingDetail() {
-	if m.detailPendingID != "" {
-		m.detailPendingID = ""
+	if m.pending.id != "" {
+		m.pending = pendingOpen{}
 		m.detailLoading = false
 	}
 }
@@ -842,6 +941,8 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	m.coll = newCollection(res)
 	m.cursor, m.offset = 0, 0
 	m.dashCursor = dashboardIndexOf(res.Kind)
+	m.detailRes = res
+	m.detailStack = nil
 	m = m.enterDetail(graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}})
 	m.detailLoading = true
 	m.err = nil
@@ -930,19 +1031,23 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-// digitIndex maps "1".."9" and "0" to a zero-based slot, so the number row
-// addresses ten quick searches in keyboard order.
+// digitIndex maps "1".."9" onto a zero-based position, for the dashboard
+// tiles, which are numbered from one because that is how they are labelled.
 func digitIndex(s string) (int, bool) {
-	if len(s) != 1 {
+	if len(s) != 1 || s[0] < '1' || s[0] > '9' {
 		return 0, false
 	}
-	switch c := s[0]; {
-	case c >= '1' && c <= '9':
-		return int(c - '1'), true
-	case c == '0':
-		return 9, true
+	return int(s[0] - '1'), true
+}
+
+// slotIndex maps a digit onto the quick-search slot it replays. The slots are
+// numbered from zero, so the digit is the slot: no arithmetic, and no slot
+// ten hiding behind the "0" key.
+func slotIndex(s string) (int, bool) {
+	if len(s) != 1 || s[0] < '0' || s[0] > '9' {
+		return 0, false
 	}
-	return 0, false
+	return int(s[0] - '0'), true
 }
 
 // apiHint returns the remedy for a Graph error, or "" when there is none.

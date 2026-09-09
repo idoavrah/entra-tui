@@ -570,3 +570,122 @@ func TestTabTitlesAreNotUnderlined(t *testing.T) {
 // ansiPattern strips styling so a test can assert on the characters a reader
 // sees rather than on the escape sequences around them.
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// ------------------------------------------------- links between objects
+
+// linkedGroup is a group whose members can be opened in their own right.
+func linkedGroup(t *testing.T) Model {
+	t.Helper()
+	m := browsing(t)
+	groups, _ := graph.Lookup("groups")
+	next, _ := m.openResource(groups)
+	m = next.(Model)
+	m.loading = false
+	m.detailRes = groups
+	m.detail = graph.Detail{
+		Kind:   graph.KindGroups,
+		Object: graph.Item{"id": "g1", "displayName": "Research"},
+		Members: []graph.Item{
+			{"id": "u1", "displayName": "Ada", "@odata.type": "#microsoft.graph.user"},
+			{"id": "g2", "displayName": "Nested", "@odata.type": "#microsoft.graph.group"},
+		},
+	}
+	m.screen = screenDetail
+	m.detailID = "g1"
+	m.detailSections = graph.Sections(m.detail)
+	return tabTitled(t, m.refreshDetail(), "Members")
+}
+
+func TestEnterOpensTheObjectUnderTheCursor(t *testing.T) {
+	m := send(t, linkedGroup(t), press("enter"))
+
+	// The group stays on screen until the member has been read.
+	if m.screen != screenDetail || m.detailID != "g1" {
+		t.Fatalf("screen = %v id = %q, want the group still shown", m.screen, m.detailID)
+	}
+	if m.pending.id != "u1" || !m.pending.link {
+		t.Fatalf("pending = %+v, want a linked open of u1", m.pending)
+	}
+
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:   graph.KindUsers,
+		Object: graph.Item{"id": "u1", "displayName": "Ada", "department": "Engine"},
+	}})
+	if m.detailID != "u1" {
+		t.Fatalf("detailID = %q, want the member's pane", m.detailID)
+	}
+	if m.detailRes.Kind != graph.KindUsers {
+		t.Errorf("detailRes = %s, want the users view", m.detailRes.Kind)
+	}
+	if !strings.Contains(mustBody(m), "Engine") {
+		t.Error("the member's pane does not show the member")
+	}
+
+	// Esc unwinds one link, back to the group and the row it was left on.
+	m = send(t, m, press("esc"))
+	if m.screen != screenDetail || m.detailID != "g1" {
+		t.Fatalf("screen = %v id = %q, want the group back", m.screen, m.detailID)
+	}
+	if m.detailRes.Kind != graph.KindGroups {
+		t.Errorf("detailRes = %s, want the groups view restored", m.detailRes.Kind)
+	}
+	if section, _ := m.activeSection(); section.Title != "Members" {
+		t.Errorf("came back to the %q tab, want Members", section.Title)
+	}
+
+	// ...and again leaves the pane entirely.
+	m = send(t, m, press("esc"))
+	if m.screen != screenBrowse {
+		t.Errorf("screen = %v, want the table", m.screen)
+	}
+}
+
+func TestEnterIgnoresRowsWithNoViewOfTheirOwn(t *testing.T) {
+	// An API permission is a row, not an object entra-tui can open.
+	m := browsing(t)
+	appregs, _ := graph.Lookup("appregs")
+	m.detailRes = appregs
+	m.detail = graph.Detail{
+		Kind:   graph.KindAppRegistrations,
+		Object: graph.Item{"id": "a1", "displayName": "App"},
+	}
+	m.screen = screenDetail
+	m.detailID = "a1"
+	m.detailSections = graph.Sections(m.detail)
+	m = m.refreshDetail()
+
+	before := m
+	m = send(t, m, press("enter"))
+	if m.detailID != before.detailID || m.pending.id != "" {
+		t.Error("enter opened something that has no view")
+	}
+	if strings.Contains(m.detailHints(), "enter") {
+		t.Error("the footer offers enter on a row that cannot be opened")
+	}
+}
+
+func TestBreadcrumbFollowsTheTrail(t *testing.T) {
+	m := linkedGroup(t)
+	if got := m.breadcrumb(); len(got) != 3 || got[0] != "Dashboard" || got[2] != "Research" {
+		t.Fatalf("breadcrumb = %v, want dashboard, view, object", got)
+	}
+
+	m = send(t, m, press("enter"))
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind: graph.KindUsers, Object: graph.Item{"id": "u1", "displayName": "Ada"},
+	}})
+
+	got := m.breadcrumb()
+	want := []string{"Dashboard", "Groups", "Research", "Ada"}
+	if len(got) != len(want) {
+		t.Fatalf("breadcrumb = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("breadcrumb = %v, want %v", got, want)
+		}
+	}
+	if !strings.Contains(m.View(), "Research") {
+		t.Error("the trail is not on screen")
+	}
+}

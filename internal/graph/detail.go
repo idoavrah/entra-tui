@@ -20,6 +20,9 @@ type Field struct {
 	// ID is the directory object this field stands for, when the field is a
 	// real object rather than a property. Only these can be removed.
 	ID string
+	// Kind is the view that describes that object, when entra-tui has one.
+	// A field carrying both an ID and a Kind can be opened in its own right.
+	Kind Kind
 	// Cells are the row's values when its section is columnar. Label and
 	// Value stay populated for everything that reads a field as a pair --
 	// confirmations, for one.
@@ -235,6 +238,7 @@ func groupsSection(d Detail) Section {
 			Label: name,
 			Value: describeDirectoryObject(g),
 			ID:    g.ID(),
+			Kind:  ObjectViewKind(g),
 			Cells: []string{name, objectKind(g), orDash(g.String("mail"))},
 		})
 	}
@@ -262,6 +266,7 @@ func membersSection(d Detail) Section {
 			Label: name,
 			Value: describeDirectoryObject(m),
 			ID:    m.ID(),
+			Kind:  ObjectViewKind(m),
 			Cells: []string{name, objectKind(m),
 				orDash(firstNonEmpty(m.String("userPrincipalName"), m.String("mail")))},
 		})
@@ -283,6 +288,56 @@ func describeDirectoryObject(i Item) string {
 	return kind + " · " + ident
 }
 
+// ObjectViewKind is the view that describes a directory object, or "" when
+// entra-tui has none for it -- a directory role, say. It is what decides
+// whether a row in a membership list can be opened in its own right.
+//
+// Graph annotates every object in a heterogeneous collection with
+// @odata.type, which is the signal to trust; a projection can suppress it, so
+// the object's own shape is the fallback. objectKind names the same decision
+// for the reader, and goes through here so the two cannot disagree -- a row
+// labelled User that enter refuses to open is worse than either answer.
+func ObjectViewKind(i Item) Kind {
+	if k := principalViewKind(strings.TrimPrefix(i.String("@odata.type"), "#microsoft.graph.")); k != "" {
+		return k
+	}
+	switch {
+	case i.String("userPrincipalName") != "":
+		return KindUsers
+	case has(i, "securityEnabled"), has(i, "groupTypes"):
+		return KindGroups
+	case has(i, "trustType"), has(i, "operatingSystem"):
+		return KindDevices
+	}
+	return ""
+}
+
+// has reports whether an object carries a property at all, which separates a
+// group with nothing set from an object of another type entirely.
+func has(i Item, key string) bool {
+	_, ok := i[key]
+	return ok
+}
+
+// principalViewKind maps a Graph type name onto the view for it. Graph spells
+// the same type two ways -- "#microsoft.graph.user" on a directory object and
+// "User" on an app role assignment -- so both are accepted.
+func principalViewKind(t string) Kind {
+	switch strings.ToLower(t) {
+	case "user":
+		return KindUsers
+	case "group":
+		return KindGroups
+	case "serviceprincipal":
+		return KindEnterpriseApps
+	case "application":
+		return KindAppRegistrations
+	case "device":
+		return KindDevices
+	}
+	return ""
+}
+
 // objectKind turns the @odata.type annotation into a readable noun. Graph
 // returns heterogeneous collections from memberOf and members, so the type is
 // the only thing distinguishing a nested group from a user.
@@ -302,12 +357,14 @@ func objectKind(i Item) string {
 		return "Contact"
 	case "":
 		// $select suppresses the annotation on some collections; fall back to
-		// the shape of the object.
-		if i.String("userPrincipalName") != "" {
+		// the shape of the object, through the same reading enter goes by.
+		switch ObjectViewKind(i) {
+		case KindUsers:
 			return "User"
-		}
-		if _, ok := i["securityEnabled"]; ok {
+		case KindGroups:
 			return "Group"
+		case KindDevices:
+			return "Device"
 		}
 		return "Object"
 	default:
@@ -737,6 +794,7 @@ func assignmentsSection(d Detail, o Item) Section {
 			Label: name,
 			Value: kind + " · " + role,
 			ID:    a.String("principalId"),
+			Kind:  principalViewKind(a.String("principalType")),
 			Cells: []string{name, kind, role},
 		})
 	}
@@ -781,6 +839,7 @@ func ownersSection(d Detail) Section {
 			Label: name,
 			Value: firstNonEmpty(o.String("userPrincipalName"), objectKind(o), ""),
 			ID:    o.ID(),
+			Kind:  ObjectViewKind(o),
 			Cells: []string{name, objectKind(o),
 				orDash(firstNonEmpty(o.String("userPrincipalName"), o.String("mail")))},
 		})

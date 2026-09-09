@@ -240,3 +240,50 @@ func TestServerResolvesPermissionsAndConsent(t *testing.T) {
 		t.Error("nothing is consented anywhere, so the permissions tab has one state only")
 	}
 }
+
+func TestHeterogeneousCollectionsCarryTheirType(t *testing.T) {
+	// Graph annotates every object in a members or owners collection with
+	// its type, and it is the only thing telling a nested group from a user
+	// there -- the properties that would give it away are not selectable.
+	c := NewServer(1).Client()
+	ctx := context.Background()
+
+	members, _, err := c.Members(ctx, "g0000")
+	if err != nil {
+		t.Fatalf("Members: %v", err)
+	}
+	if len(members) == 0 {
+		t.Fatal("the first group has no members")
+	}
+	seen := map[string]bool{}
+	for _, m := range members {
+		got := m.String("@odata.type")
+		if got == "" {
+			t.Fatalf("member %q carries no @odata.type", m.ID())
+		}
+		seen[got] = true
+	}
+	// The generator nests a group in every members list, so both types are
+	// there to tell apart.
+	for _, want := range []string{"#microsoft.graph.user", "#microsoft.graph.group"} {
+		if !seen[want] {
+			t.Errorf("no member of type %s; saw %v", want, seen)
+		}
+	}
+}
+
+func TestListingsAreNotAnnotated(t *testing.T) {
+	// A homogeneous collection does not carry the annotation, and code that
+	// reads one must not come to depend on it.
+	c := NewServer(1).Client()
+	page, err := c.List(context.Background(), graph.Query{Path: "/users", Top: 1})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(page.Items) == 0 {
+		t.Fatal("no users")
+	}
+	if got := page.Items[0].String("@odata.type"); got != "" {
+		t.Errorf("a plain listing carries @odata.type = %q", got)
+	}
+}

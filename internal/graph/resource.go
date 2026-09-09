@@ -66,9 +66,6 @@ type Resource struct {
 	// Select is the $select projection. Every property a Column reads must
 	// appear here, or the column silently renders blank.
 	Select []string
-	// OrderBy is the default server-side sort, dropped automatically while a
-	// server search is active because Graph rejects the combination.
-	OrderBy string
 	// SearchFields are the properties a server-side search covers.
 	SearchFields []string
 	// Columns are the table columns, left to right.
@@ -125,7 +122,6 @@ func devicesResource() Resource {
 			"manufacturer", "model", "registrationDateTime", "approximateLastSignInDateTime",
 			"onPremisesSyncEnabled", "enrollmentType",
 		},
-		OrderBy:      "displayName",
 		SearchFields: []string{"displayName"},
 		Accent:       "#7dcfff",
 		State: func(i Item) RowState {
@@ -181,7 +177,6 @@ func usersResource() Resource {
 			"accountEnabled", "jobTitle", "department", "officeLocation",
 			"mobilePhone", "createdDateTime", "onPremisesSyncEnabled",
 		},
-		OrderBy:      "displayName",
 		SearchFields: []string{"displayName", "userPrincipalName", "mail"},
 		Accent:       "#7aa2f7",
 		State: func(i Item) RowState {
@@ -213,7 +208,6 @@ func groupsResource() Resource {
 			"createdDateTime", "membershipRule", "onPremisesSyncEnabled",
 			"isAssignableToRole",
 		},
-		OrderBy:      "displayName",
 		SearchFields: []string{"displayName", "mail", "description"},
 		Accent:       "#9ece6a",
 		Columns: []Column{
@@ -274,7 +268,6 @@ func appRegistrationsResource() Resource {
 			"passwordCredentials", "keyCredentials", "web", "spa",
 			"publicClient", "api",
 		},
-		OrderBy:      "displayName",
 		SearchFields: []string{"displayName", "description"},
 		Accent:       "#e0af68",
 		State: func(i Item) RowState {
@@ -307,7 +300,6 @@ func enterpriseAppsResource() Resource {
 			"homepage", "tags", "appOwnerOrganizationId", "createdDateTime",
 			"loginUrl", "preferredSingleSignOnMode", "servicePrincipalNames",
 		},
-		OrderBy: "displayName",
 		// publisherName is not searchable on servicePrincipals in every
 		// tenant, and an unsearchable field fails the whole query.
 		SearchFields: []string{"displayName"},

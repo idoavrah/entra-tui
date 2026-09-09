@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -12,7 +13,7 @@ import (
 // the framed content area is the only thing that grows and shrinks with the
 // terminal.
 const (
-	footerHeight = 2 // status line, key hints
+	footerHeight = 3 // status line, key hints, breadcrumb
 	boxChrome    = 2 // top and bottom border
 	// tableHeadHeight is the column header row, drawn inside the frame.
 	tableHeadHeight = 1
@@ -173,23 +174,25 @@ func (m Model) renderHeader() string {
 		rightEdge = logoAt - headerBlockGap
 	}
 
-	quick := m.quickSearchBlock()
-	quickAt := -1
-	if len(quick) > 0 && rightEdge-quickBlockWidth >= contextWidth+headerBlockGap {
-		quickAt = rightEdge - quickBlockWidth
-	}
-
 	// The general keys sit next to the context block, k9s-style: they apply
 	// everywhere, so they belong with the session information rather than in
-	// the footer where the screen-specific keys live.
-	shortcutsEnd := rightEdge
-	if quickAt >= 0 {
-		shortcutsEnd = quickAt - headerBlockGap
-	}
+	// the footer where the screen-specific keys live. They are placed before
+	// the quick searches because they are the only thing on screen saying
+	// how to get anywhere.
 	shortcuts := generalShortcuts()
 	shortcutsAt := -1
-	if shortcutsEnd-shortcutBlockWidth() >= contextWidth+headerBlockGap {
+	if contextWidth+headerBlockGap+shortcutBlockWidth() <= rightEdge {
 		shortcutsAt = contextWidth + headerBlockGap
+	}
+
+	usedLeft := contextWidth
+	if shortcutsAt >= 0 {
+		usedLeft = shortcutsAt + shortcutBlockWidth()
+	}
+	quick := m.quickSearchBlock()
+	quickAt := -1
+	if len(quick) > 0 && rightEdge-quickBlockWidth >= usedLeft+headerBlockGap {
+		quickAt = rightEdge - quickBlockWidth
 	}
 
 	height := m.headerHeight()
@@ -323,7 +326,10 @@ func (m Model) statusIndicator() string {
 // quickSearchBlock renders this view's search slots as two columns. Slots
 // keep fixed positions, so each digit keeps meaning the same search.
 func (m Model) quickSearchBlock() []string {
-	if m.coll == nil {
+	// The slots replay searches within a view, so they belong to a view. On
+	// the dashboard there is nothing for a digit to search, and the digits
+	// mean something else there anyway.
+	if m.coll == nil || m.screen == screenDashboard {
 		return nil
 	}
 	kind := string(m.coll.res.Kind)
@@ -367,12 +373,11 @@ func (m Model) quickEntry(slots []string, index int) string {
 		spaces(quickEntryWidth-labelWidth-lipgloss.Width(text))
 }
 
-// quickDigit maps a slot index to the key that replays it: 1-9 then 0.
+// quickDigit maps a slot index to the key that replays it. The slots are
+// numbered from zero so the digit on a slot is the digit you press: "1-0"
+// as a range read as a countdown, and left readers hunting for slot ten.
 func quickDigit(index int) string {
-	if index == 9 {
-		return "0"
-	}
-	return itoa(index + 1)
+	return itoa(index)
 }
 
 // ------------------------------------------------------------------ prompt
@@ -399,8 +404,8 @@ func (m Model) promptPrefix() string {
 
 // ------------------------------------------------------------------ footer
 
-// renderFooter is the status line plus a second line carrying either an
-// error's remedy or the key hints.
+// renderFooter is the status line, the key hints, and the trail showing
+// where in the directory the screen is.
 //
 // When a request fails, the hint explaining what to do about it displaces the
 // key hints: the two together overflow one line and the truncation would cut
@@ -412,7 +417,94 @@ func (m Model) renderFooter(hints string) string {
 			second = styleWarn.Render(graph.Truncate(hint, m.width))
 		}
 	}
-	return m.renderStatusLine() + "\n" + second
+	return m.renderStatusLine() + "\n" + second + "\n" + m.renderBreadcrumb()
+}
+
+// renderBreadcrumb draws the trail from the dashboard to what is on screen.
+//
+// Following a link out of a membership list can go several objects deep, and
+// the pane's own title only names the object in front of you; the trail is
+// what says which group you reached this user through, and how far esc has
+// to take you back.
+func (m Model) renderBreadcrumb() string {
+	trail := m.breadcrumb()
+	if len(trail) == 0 {
+		return ""
+	}
+	const separator = " › "
+
+	// Drop leading steps rather than the object in front: which group you
+	// came through is worth losing before what you are looking at. An
+	// ellipsis stands in for whatever was dropped.
+	steps := trail
+	for start := 1; len(steps) > 1 && trailWidth(steps, separator) > m.width; start++ {
+		steps = append([]string{"…"}, trail[start:]...)
+	}
+
+	// A step wider than the terminal is cut before it is styled. Cutting the
+	// finished line instead severs an escape sequence -- and counts those
+	// escapes as characters, which is what once ate the object's name and
+	// left the trail ending in a separator.
+	last := len(steps) - 1
+	steps[last] = graph.Truncate(steps[last], m.width)
+
+	var b strings.Builder
+	for i, step := range steps {
+		if i > 0 {
+			b.WriteString(styleDim.Render(separator))
+		}
+		style := styleDim
+		if i == last {
+			style = styleHintDesc
+		}
+		b.WriteString(style.Render(bidi.Display(step)))
+	}
+	return b.String()
+}
+
+// trailWidth is what a trail costs on screen, separators included.
+func trailWidth(trail []string, separator string) int {
+	w := (len(trail) - 1) * lipgloss.Width(separator)
+	for _, s := range trail {
+		w += lipgloss.Width(s)
+	}
+	return w
+}
+
+// breadcrumb is the trail as plain steps, outermost first.
+func (m Model) breadcrumb() []string {
+	trail := []string{"Dashboard"}
+	if m.screen == screenDashboard {
+		return trail
+	}
+	if m.screen == screenHelp {
+		return append(trail, "Help")
+	}
+	if m.coll == nil {
+		return trail
+	}
+
+	view := m.coll.res.Title
+	if m.coll.search != "" {
+		view += ` "` + m.coll.search + `"`
+	}
+	trail = append(trail, view)
+	if m.screen != screenDetail {
+		return trail
+	}
+
+	for _, f := range m.detailStack {
+		trail = append(trail, objectLabel(f.detail, f.id))
+	}
+	return append(trail, objectLabel(m.detail, m.detailID))
+}
+
+// objectLabel is what to call an object in the trail.
+func objectLabel(d graph.Detail, id string) string {
+	if name := d.Object.String("displayName"); name != "" {
+		return name
+	}
+	return id
 }
 
 func (m Model) renderStatusLine() string {
@@ -489,7 +581,7 @@ func (m Model) renderBrowse() string {
 
 	hints := hintBar(m.width,
 		[2]string{"enter", "describe"},
-		[2]string{"1-0", "replay a search"},
+		[2]string{"0-9", "replay a search"},
 		[2]string{"r", "refresh"},
 	)
 	return m.chrome(m.tableCaption(), m.tableFooterCaption(), body, hints)
@@ -522,10 +614,11 @@ func (m Model) tableCaption() string {
 		count += " of " + formatInt(int(m.coll.total))
 	}
 	parts = append(parts, styleDim.Render(count))
-	parts = append(parts, styleDim.Render("↑name"))
 
+	// Only a searched view is sorted, so only a searched view says so.
 	if m.coll.search != "" {
 		parts = append(parts, styleOK.Render("search: "+m.coll.search))
+		parts = append(parts, styleDim.Render("↑name"))
 	}
 	return strings.Join(parts, styleDim.Render(" · "))
 }
@@ -593,7 +686,7 @@ func (m Model) renderHelp() string {
 	cols2 := lipgloss.JoinHorizontal(lipgloss.Top,
 		section("SEARCH", [][2]string{
 			{"/", "search the directory"},
-			{"1-0", "replay a slot"},
+			{"0-9", "replay a slot"},
 			{"esc", "clear the search"},
 			{":", "command prompt"},
 		}),

@@ -4,7 +4,7 @@ Signed   demo                                   ~ home    ↑↓ move           
 Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
                                                 q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
-┌───────────────────────────────────────────────────────────────────────── Users · 25 of 25 · ↑name · search: storm ─────────────────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────────────── Users · 25 of 25 · search: storm · ↑name ─────────────────────────────────────────────────────────────────────────┐
 │NAME                                                 USER PRINCIPAL NAME                                                     TYPE   ENABLED DEPARTMENT                                      │
 │Bram Stormrider                                      bram.stormrider8@aetherforge.onmicrosoft.com                            Member yes     Publishing                                      │
 │Cassia Stormrider                                    cassia.stormrider7@aetherforge.onmicrosoft.com                          Guest  yes     Art & Animation                                 │
@@ -36,7 +36,7 @@ Status   connected                              ? help    ←→ tab            
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
-│                                                                                                                                                                                            │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-enter describe  ·  1-0 replay a search  ·  r refresh
+enter describe  ·  0-9 replay a search  ·  r refresh
+Dashboard › Users "storm"

@@ -137,10 +137,9 @@ func (m Model) authenticate(method auth.Method) tea.Cmd {
 func (m *Model) query() graph.Query {
 	res := m.coll.res
 	q := graph.Query{
-		Path:    res.Path,
-		Select:  res.Select,
-		OrderBy: res.OrderBy,
-		Top:     m.opts.PageSize,
+		Path:   res.Path,
+		Select: res.Select,
+		Top:    m.opts.PageSize,
 		// Asking for @odata.count is what lets the header say "142 of 3,481"
 		// instead of just "142 so far".
 		Count: true,

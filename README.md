@@ -10,19 +10,30 @@ keyboard, through **your own permissions** — entra-tui signs you in and issues
 nothing but `GET` requests to Microsoft Graph v1.0.
 
 ```
-Tenant   contoso.onmicrosoft.com     [1] liskov          [6]              ┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬
-Account  ada@contoso.com             [2] finance         [7]              ├┤ │││ │ ├┬┘├─┤   │ │ ││
-Signed   browser                     [3] guest           [8]              └─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴
-Status   connected                   [4]                 [9]
-                                     [5]                 [0]
-┌──────────────────── Users · 16 of 16 · ↑name · search: liskov ────────────────────┐
-│NAME                 USER PRINCIPAL NAME              TYPE   ENABLED DEPARTMENT    │
-│Ada Liskov           ada.liskov@contoso.com           Member yes     Research      │
-│Barbara Liskov       barbara.liskov@contoso.com       Member yes     Finance       │
-│ןהכ הרש              sara.cohen@contoso.com           Member yes     Security      │
-└──────────────────────── more below — scroll to load ──────────────────────────────┘
+Tenant   aetherforge-demo-tenant                : view    esc back          [0] stormrider         [5]
+Account  kaelen.stormrider0@aetherforge.onmi…   / search  c copy            [1] engine             [6]
+Signed   demo                                   ~ home    ↑↓ move           [2]                    [7]
+Status   connected                              ? help    ←→ tab            [3]                    [8]
+                                                q quit    pg↑↓ page         [4]                    [9]
+┌─────────────────────────────────── Users · 25 of 25 · search: stormrider · ↑name ────────────────────────────────────┐
+│NAME                            USER PRINCIPAL NAME                         TYPE   ENABLED DEPARTMENT                 │
+│Bram Stormrider                 bram.stormrider8@aetherforge.onmicrosoft.c… Member yes     Publishing                 │
+│Cassia Stormrider               cassia.stormrider7@aetherforge.onmicrosoft… Guest  yes     Art & Animation            │
+│Corvin Stormrider               corvin.stormrider14@aetherforge.onmicrosof… Member no      Engine                     │
+│Draxin Stormrider               draxin.stormrider2@aetherforge.onmicrosoft… Member yes     Engine                     │
+│Elowen Stormrider               elowen.stormrider15@aetherforge.onmicrosof… Member yes     Gameplay                   │
+│Fenris Stormrider               fenris.stormrider16@aetherforge.onmicrosof… Member yes     Quality Assurance          │
+│Ilyana Stormrider               ilyana.stormrider13@aetherforge.onmicrosof… Guest  no      Engine                     │
+│Isolde Stormrider               isolde.stormrider17@aetherforge.onmicrosof… Guest  yes     Art & Animation            │
+│Jorund Stormrider               jorund.stormrider18@aetherforge.onmicrosof… Member yes     Art & Animation            │
+│Kaelen Stormrider               kaelen.stormrider0@aetherforge.onmicrosoft… Member no      Live Ops                   │
+│Lyra Stormrider                 lyra.stormrider19@aetherforge.onmicrosoft.… Member yes     Live Ops                   │
+│Nyx Stormrider                  nyx.stormrider6@aetherforge.onmicrosoft.com Member yes     Narrative                  │
+│Osric Stormrider                osric.stormrider20@aetherforge.onmicrosoft… Member yes     Gameplay                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-pgup/pgdn properties · ←/→ tab · ↑/↓ list · a add member · o add owner · d remove · esc back
+enter describe  ·  0-9 replay a search  ·  r refresh
+Dashboard › Users "stormrider"
 ```
 
 
@@ -156,11 +167,14 @@ entra-tui -scopes User.Read.All,Group.Read.All
 | `4` | `:entapps` | Enterprise apps | `/servicePrincipals` |
 | `5` | `:devices` | Devices | `/devices` |
 
-Every view is **sorted by name**. Sorting happens client-side because Graph
-refuses `$orderby` alongside `$search`; doing it here means the order is the
-same whether or not a search is active, and later pages merge into place
-rather than appending at the bottom. Your selected row follows its object
-across a re-sort.
+**Search results are sorted by name**; an unfiltered view is not. Graph
+refuses `$orderby` alongside `$search`, so matches would otherwise arrive in
+relevance order, which is not an order anyone can scan — a handful of them is
+worth sorting client-side, and later pages of matches merge into place rather
+than appending at the bottom. An unfiltered view stays in the order the
+directory returned it, because sorting it would re-order the rows already on
+screen every time a page lands, moving the row under the cursor while it is
+being read. Your selected row follows its object across a re-sort.
 
 Some columns are computed rather than copied straight out of Graph:
 
@@ -213,15 +227,22 @@ Slots are cached under your user cache directory (`~/.cache/entra-tui/` on
 Linux, `~/Library/Caches/entra-tui/` on macOS) so they survive a restart. The
 file is owner-readable only, since search terms can name people.
 
-`esc` leaves the view for the dashboard — it does not unpick the search on the
-way out, which cost a second press and a wasted round trip. Run an empty
-search to clear one.
+`esc` backs out one layer at a time. From a table it leaves for the dashboard
+— it does not unpick the search on the way out, which cost a second press and
+a wasted round trip; run an empty search to clear one. From a detail pane it
+returns to the object you followed a link from, if there was one, and only
+then to the table.
 
 ## Detail view
 
 `enter` describes the selected object. The pane re-reads it **without** a
 `$select` projection and gathers the follow-up lookups that make it
 intelligible, then groups everything into sections.
+
+`enter` in a membership list opens that object in a pane of its own, so a
+group's members and a user's groups are traversable rather than dead text.
+The trail along the bottom row shows how far in you are, and `esc` unwinds it
+one object at a time.
 
 **App registrations** — Essentials · Authentication · Certificates & secrets ·
 API permissions · App roles · Exposed API · Owners
@@ -312,23 +333,23 @@ implemented. **The underlying data is never modified** — only what is drawn.
 
 | Key | Action |
 | --- | --- |
-| `↑`/`k`, `↓`/`j` | Move cursor |
-| `pgup` / `pgdn`, `g` / `G` | Page, top / bottom |
-| `enter` | Select / describe |
+| `↑`/`k`, `↓`/`j` | Move cursor, or walk the list tab in front |
+| `pgup` / `pgdn` | Page the table, or the list tab in front |
+| `g` / `G` | Top / bottom |
+| `enter` | Describe the selected object, in a table or in a list tab |
 | `/` | Search the directory |
-| `1`–`9`, `0` | Replay a search slot (in a view); open a view (on the dashboard) |
-| `←` `→` | Move between dashboard tiles |
+| `0`–`9` | Replay a search slot (in a view) |
+| `1`–`5` | Open a view (on the dashboard) |
+| `←` / `→` | Switch detail tabs; move between dashboard tiles |
 | `:` | Command prompt (`:users`, `:groups`, `:appregs`, `:entapps`, `:dash`, `:q`) |
-| `esc` | Leave the view for the dashboard |
+| `esc` | Back one layer: out of a linked object, then out of the pane, then to the dashboard |
 | `~` | Dashboard, from anywhere |
 | `x` | App registration ⇄ enterprise app |
 | `R` | Raw JSON (detail view) |
 | `r` | Refresh from Graph |
 | `c` (or `y`) | Copy object id (OSC 52, works over SSH) |
-| `a` / `o` | Add a member / an owner |
+| `a` | Add to the list tab in front — a member on one tab, an owner on the next |
 | `d` | Remove the selected member or owner |
-| `←` / `→` | Switch detail tabs; move between dashboard tiles |
-| `pgup` / `pgdn` | Scroll the detail properties |
 | `?` | Help |
 | `q` | Quit |
 

@@ -78,7 +78,7 @@ func TestQuickSearchGridSitsBesideTheWordmark(t *testing.T) {
 	header := strings.Split(m.renderHeader(), "\n")
 	line := header[0]
 
-	slotAt := strings.Index(line, "[1]")
+	slotAt := strings.Index(line, "[0]")
 	logoAt := strings.Index(line, m.headerLogo()[0])
 	if slotAt < 0 || logoAt < 0 {
 		t.Fatalf("header %q is missing the grid or the wordmark", line)
@@ -96,7 +96,7 @@ func TestQuickSearchGridDroppedWhenThereIsNoRoom(t *testing.T) {
 	m.history.record(string(graph.KindUsers), "ada")
 	m.width = 60
 
-	if strings.Contains(m.renderHeader(), "[1]") {
+	if strings.Contains(m.renderHeader(), "[0]") {
 		t.Error("the grid is drawn in a terminal with no room for it")
 	}
 }
@@ -155,5 +155,61 @@ func TestQuickSearchBlockIsEmptyBeforeAnySearch(t *testing.T) {
 	}
 	if strings.Contains(m.renderHeader(), "press / to search") {
 		t.Error("the header still carries the placeholder hint")
+	}
+}
+
+func TestDashboardHasNoQuickSearchGrid(t *testing.T) {
+	// The slots search within a view; on the dashboard a digit opens a tile.
+	m := browsing(t)
+	m.history.record(string(graph.KindUsers), "ada")
+	if len(m.quickSearchBlock()) == 0 {
+		t.Fatal("a view with a recorded search has no grid")
+	}
+
+	m.screen = screenDashboard
+	if len(m.quickSearchBlock()) != 0 {
+		t.Error("the dashboard draws the quick-search grid")
+	}
+	if strings.Contains(m.View(), "[0] ada") {
+		t.Error("the dashboard shows a quick search")
+	}
+}
+
+func TestBreadcrumbKeepsTheObjectWhenItCannotFit(t *testing.T) {
+	m := browsing(t)
+	m.width = 30
+	m.screen = screenDetail
+	m.detailID = "u1"
+	m.detail = graph.Detail{Kind: graph.KindUsers,
+		Object: graph.Item{"id": "u1", "displayName": "Ada Lovelace"}}
+
+	line := m.renderBreadcrumb()
+	if !strings.Contains(line, "Ada Lovelace") {
+		t.Errorf("trail %q dropped the object rather than the steps before it", line)
+	}
+	if lipgloss.Width(line) > m.width {
+		t.Errorf("trail is %d cells wide, want at most %d", lipgloss.Width(line), m.width)
+	}
+}
+
+func TestBreadcrumbDrawsEveryStep(t *testing.T) {
+	// Styling made the line far longer in bytes than in cells, and cutting
+	// the finished string to the terminal width ate the object's name and
+	// left the trail ending in a separator.
+	m := browsing(t)
+	m.screen = screenDetail
+	m.detailID = "u1"
+	m.detail = graph.Detail{Kind: graph.KindUsers,
+		Object: graph.Item{"id": "u1", "displayName": "Zephyr Silverbrook"}}
+
+	line := m.renderBreadcrumb()
+	plain := ansiPattern.ReplaceAllString(line, "")
+	for _, want := range []string{"Dashboard", "Users", "Zephyr Silverbrook"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("trail %q is missing %q", plain, want)
+		}
+	}
+	if strings.HasSuffix(strings.TrimSpace(plain), "›") {
+		t.Errorf("trail %q ends in a separator", plain)
 	}
 }

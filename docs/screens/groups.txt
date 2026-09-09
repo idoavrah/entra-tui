@@ -4,7 +4,7 @@ Signed   demo                                   ~ home    ↑↓ move           
 Status   connected                              ? help    ←→ tab                                                          ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║       ██║   ██║   ██║██║
                                                 q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
-┌─────────────────────────────────────────────────────────────────────────────── Groups · 100 of 130 · ↑name ────────────────────────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────────────────────── Groups · 100 of 130 ────────────────────────────────────────────────────────────────────────────────────┐
 │NAME                                                            TYPE                        MEMBERSHIP MAIL                                                         VISIBILITY SYNCED AGE   │
 │Art & Animation Council 66                                      Microsoft 365               Assigned   team66@aetherforge.games                                     Private    no     ····  │
 │Art & Animation Crew 24                                         Microsoft 365               Assigned   team24@aetherforge.games                                     Private    no     ······│
@@ -36,7 +36,7 @@ Status   connected                              ? help    ←→ tab            
 │Engine Council 120                                              Microsoft 365               Assigned   team120@aetherforge.games                                    Public     yes    ······│
 │Engine Council 13                                               Security                    Assigned                                                                Private    no     ······│
 │Engine Council 53                                               Security                    Assigned                                                                Public     no     ····  │
-│Engine Council 8                                                Security                    Assigned                                                                Public     no     ······│
 └─────────────────────────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────────────────────────┘
 
-enter describe  ·  1-0 replay a search  ·  r refresh
+enter describe  ·  0-9 replay a search  ·  r refresh
+Dashboard › Groups

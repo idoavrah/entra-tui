@@ -393,7 +393,7 @@ func TestQuickSearchSlotsKeepTheirDigits(t *testing.T) {
 	m.history.record(string(graph.KindUsers), "beta")
 
 	view := m.View()
-	if !strings.Contains(view, "[1]") || !strings.Contains(view, "[2]") {
+	if !strings.Contains(view, "[0]") || !strings.Contains(view, "[1]") {
 		t.Error("the quick-search bar does not label its slots")
 	}
 	if !strings.Contains(view, "alpha") || !strings.Contains(view, "beta") {
@@ -430,26 +430,31 @@ func TestQuickSearchesAreScopedToTheView(t *testing.T) {
 }
 
 func TestDigitReplaysItsFixedSlot(t *testing.T) {
-	// Slots are positional, not most-recently-used: the second term recorded
-	// lives in slot 2 and stays there, so "2" always replays it.
+	// Slots are positional, not most-recently-used, and numbered from zero
+	// so the digit on a slot is the digit you press: the second term
+	// recorded lives in slot 1 and stays there.
 	m := browsing(t)
 	m.history.record(string(graph.KindUsers), "alpha")
 	m.history.record(string(graph.KindUsers), "beta")
 
-	m = send(t, m, press("2"))
+	if got := send(t, m, press("0")); got.coll.search != "alpha" {
+		t.Errorf("search = %q, want the term in slot 0", got.coll.search)
+	}
+
+	m = send(t, m, press("1"))
 	if m.coll.search != "beta" {
-		t.Errorf("search = %q, want the term in slot 2", m.coll.search)
+		t.Errorf("search = %q, want the term in slot 1", m.coll.search)
 	}
 	if !m.loading {
 		t.Error("replaying a search did not requery")
 	}
 
-	// Running a third search must not disturb what "2" means.
+	// Running a third search must not disturb what "1" means.
 	m.loading = false
 	m.history.record(string(graph.KindUsers), "gamma")
-	m = send(t, m, press("2"))
+	m = send(t, m, press("1"))
 	if m.coll.search != "beta" {
-		t.Errorf("search = %q, want slot 2 unchanged by a later search", m.coll.search)
+		t.Errorf("search = %q, want slot 1 unchanged by a later search", m.coll.search)
 	}
 }
 
@@ -562,8 +567,10 @@ func TestUnknownCommandFlashes(t *testing.T) {
 
 // ------------------------------------------------------------------- table
 
-func TestRowsAreSortedByName(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Zoe", "ada", "Mike")
+func TestSearchResultsAreSortedByName(t *testing.T) {
+	m := browsing(t)
+	m.coll.search = "a"
+	m = loadUsers(t, m, "Zoe", "ada", "Mike")
 
 	var names []string
 	for i := 0; i < m.coll.len(); i++ {
@@ -579,7 +586,9 @@ func TestRowsAreSortedByName(t *testing.T) {
 }
 
 func TestLaterPagesAreMergedInNameOrder(t *testing.T) {
-	m := loadUsers(t, browsing(t), "Bob", "Dave")
+	m := browsing(t)
+	m.coll.search = "a"
+	m = loadUsers(t, m, "Bob", "Dave")
 	m = send(t, m, pageMsg{gen: m.gen, append: true, page: &graph.Page{
 		Items: []graph.Item{
 			{"id": "c", "displayName": "Carol"},
@@ -690,7 +699,7 @@ func TestPromptAndQuickSearchesRenderAboveTheTable(t *testing.T) {
 		return -1
 	}
 
-	quick := idxOf("[1]")
+	quick := idxOf("[0]")
 	header := idxOf("USER PRINCIPAL NAME")
 	row := idxOf("Ada")
 	if quick < 0 || header < 0 || row < 0 {
@@ -1030,16 +1039,19 @@ func TestEveryRenderedLineFitsTheTerminal(t *testing.T) {
 	}
 }
 
-func TestFooterStaysTwoLinesAtTheBottom(t *testing.T) {
+func TestFooterStaysFixedAtTheBottom(t *testing.T) {
 	m := loadUsers(t, browsing(t), "Ada")
 	lines := strings.Split(m.View(), "\n")
 
-	// Last line is the hint bar; the one before it is the status line.
-	if !strings.Contains(lines[len(lines)-1], "refresh") {
-		t.Errorf("last line = %q, want the key hints", lines[len(lines)-1])
+	// Bottom up: the trail, the key hints, the status line, then the frame.
+	if !strings.Contains(lines[len(lines)-1], "Users") {
+		t.Errorf("last line = %q, want the breadcrumb", lines[len(lines)-1])
 	}
-	if !strings.HasPrefix(lines[len(lines)-3], boxBottomLeft) {
-		t.Errorf("line %q should be the frame's bottom border", lines[len(lines)-3])
+	if !strings.Contains(lines[len(lines)-2], "refresh") {
+		t.Errorf("line %q, want the key hints", lines[len(lines)-2])
+	}
+	if !strings.HasPrefix(lines[len(lines)-4], boxBottomLeft) {
+		t.Errorf("line %q should be the frame's bottom border", lines[len(lines)-4])
 	}
 }
 
@@ -1077,8 +1089,8 @@ func TestDelayHoldsTheTableUntilTheObjectHasLoaded(t *testing.T) {
 	if !m.detailLoading {
 		t.Error("nothing marks the object as loading")
 	}
-	if m.detailPendingID != "Ada" {
-		t.Errorf("detailPendingID = %q, want the row's id", m.detailPendingID)
+	if m.pending.id != "Ada" {
+		t.Errorf("pending id = %q, want the row's id", m.pending.id)
 	}
 
 	// The pane opens once, already populated: no frame shows the row's
@@ -1090,7 +1102,7 @@ func TestDelayHoldsTheTableUntilTheObjectHasLoaded(t *testing.T) {
 	if m.screen != screenDetail {
 		t.Fatalf("screen = %v, want the pane to open on the reply", m.screen)
 	}
-	if m.detailPendingID != "" || m.detailLoading {
+	if m.pending.id != "" || m.detailLoading {
 		t.Error("the pane opened but still says it is loading")
 	}
 	if !strings.Contains(mustBody(m), "Engine") {
@@ -1101,8 +1113,8 @@ func TestDelayHoldsTheTableUntilTheObjectHasLoaded(t *testing.T) {
 func TestDelayedOpenIsAbandonedWhenTheCursorMoves(t *testing.T) {
 	// The pane must not spring open over a row the user has moved off.
 	m := send(t, send(t, delayed(t), press("enter")), press("down"))
-	if m.detailPendingID != "" {
-		t.Errorf("detailPendingID = %q, want the open abandoned", m.detailPendingID)
+	if m.pending.id != "" {
+		t.Errorf("pending id = %q, want the open abandoned", m.pending.id)
 	}
 
 	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
@@ -1121,7 +1133,23 @@ func TestNoDelayOpensThePaneImmediately(t *testing.T) {
 	if m.screen != screenDetail {
 		t.Fatalf("screen = %v, want the pane open on the keypress", m.screen)
 	}
-	if m.detailPendingID != "" {
-		t.Errorf("detailPendingID = %q, want nothing pending", m.detailPendingID)
+	if m.pending.id != "" {
+		t.Errorf("pending id = %q, want nothing pending", m.pending.id)
+	}
+}
+
+func TestUnsearchedViewIsNotReordered(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Zoe", "ada", "Mike")
+
+	var names []string
+	for i := 0; i < m.coll.len(); i++ {
+		item, _, _ := m.coll.at(i)
+		names = append(names, item.String("displayName"))
+	}
+	want := []string{"Zoe", "ada", "Mike"}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("order = %v, want %v -- the directory's own order", names, want)
+		}
 	}
 }
