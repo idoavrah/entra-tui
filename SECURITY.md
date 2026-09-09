@@ -56,6 +56,14 @@ apart. The raw view (`R`) stays faithful — it escapes those characters as
 away. The one clipboard write entra-tui makes (`c`) is an OSC 52 sequence
 carrying base64 of a value the app itself produced.
 
+## What the build does about it
+
+CI runs [`govulncheck`](https://go.dev/blog/govulncheck) on every push, which
+reports only the advisories whose vulnerable symbols this code actually
+reaches. GitHub Actions are pinned to commit SHAs rather than to moving major
+tags: the release workflow publishes binaries under this repository's name,
+and a tag can be repointed by whoever owns the action.
+
 ## Supported versions
 
 Only the latest release. entra-tui is pre-1.0; fixes go into the next tag

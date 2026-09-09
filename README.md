@@ -420,6 +420,7 @@ Every flag has an environment variable; flags win.
 go test ./...        # unit tests, no network
 go vet ./...
 gofmt -l .
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
 
 Layout:
@@ -431,8 +432,14 @@ internal/bidi/       right-to-left reordering for non-bidi terminals
 internal/config/     flag + environment resolution
 internal/demo/       generated directory and an in-process Graph stand-in
 internal/graph/      paged Graph client, resources, detail sections
+internal/text/       what every string from outside goes through before it
+                     reaches a terminal
 internal/ui/         Bubble Tea model, screens, dialogs, frame and table layout
 ```
+
+CI runs all four on every push, `govulncheck` included, so a newly disclosed
+advisory that this code actually reaches fails the build rather than waiting
+for somebody to look.
 
 ### Screen captures
 
