@@ -17,18 +17,25 @@ equivalents for all of it.
 entra-tui acts as **you**, through a delegated token, and never as an
 application. There is no client-secret mode and no app-only mode.
 
-**Tokens.** No token cache is written to disk. In the default Azure CLI mode
-the token is read from `az account get-access-token` for the life of the
-process; in `-auth browser` mode it lives in memory only, so quitting throws
-it away and the next launch signs in again. The token is never logged, never
-written to a file, and never sent anywhere but `graph.microsoft.com` (or the
-sovereign-cloud endpoint given by `-graph-url`).
+**Sign-in.** The Azure CLI is the only supported way in. entra-tui runs `az
+account get-access-token --resource https://graph.microsoft.com` and uses what
+comes back. It registers no application of its own, runs no OAuth flow of its
+own, opens no browser, and starts no loopback listener. A machine without a
+signed-in CLI is told to run `az login`; there is no fallback to step down to.
+
+**Tokens.** The token lives in memory for the life of the process and is
+refreshed by asking the CLI again. entra-tui writes no token cache of its own.
+The token is never logged, never written to a file, and never sent anywhere
+but `graph.microsoft.com` (or the sovereign-cloud endpoint given by
+`-graph-url`).
 
 **Access.** Everything entra-tui can see or change, you could already see or
-change. It requests the narrowest delegated scopes its views need, and never
-`Directory.Read.All`:
+change. The token is the Azure CLI's, minted for its own first-party client
+with whatever delegated permissions that client has been consented in your
+tenant — entra-tui does not choose the scopes and cannot widen them. In
+practice the views need:
 
-| Scope | Covers |
+| Permission | Covers |
 | --- | --- |
 | `User.Read.All` | Users |
 | `Device.Read.All` | Devices |
@@ -36,12 +43,9 @@ change. It requests the narrowest delegated scopes its views need, and never
 | `GroupMember.ReadWrite.All` | A user's groups, a group's members |
 | `Application.ReadWrite.All` | App registrations, enterprise apps, owners, role assignments |
 
-A `ReadWrite` scope covers its `Read` counterpart, so asking for both only
-lengthens the consent prompt. Narrow the token further with `-scopes` if you
-like. All of these need admin consent — a property of the Graph permission
-model, not of this tool. Consent is the tenant's decision: without it,
-requests come back `403` and the affected section says so rather than the
-whole view failing.
+Whether your session actually carries these is the tenant's decision, not this
+tool's. Without one, the affected requests come back `403` and the section
+that needed it says so, rather than the whole view failing.
 
 **Writes.** entra-tui adds and removes group members and owners. It creates,
 deletes and renames nothing. Every change is confirmed first, naming both

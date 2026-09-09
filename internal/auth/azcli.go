@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -22,6 +21,8 @@ const azTimeout = 30 * time.Second
 // AzureCliCredential does, and caches the result until it nears expiry so a
 // busy TUI does not spawn a subprocess per request.
 type azureCLIProvider struct {
+	tenantID string
+
 	mu       sync.Mutex
 	token    string
 	expires  time.Time
@@ -55,8 +56,7 @@ func (r azTokenResponse) expiry() time.Time {
 }
 
 func newAzureCLI(ctx context.Context, opts Options) (Provider, error) {
-	opts.applyDefaults()
-	p := &azureCLIProvider{}
+	p := &azureCLIProvider{tenantID: opts.TenantID}
 	if _, err := p.refresh(ctx); err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (p *azureCLIProvider) Identity() Identity {
 }
 
 func (p *azureCLIProvider) refresh(ctx context.Context) (string, error) {
-	res, err := runAzTokenCommand(ctx)
+	res, err := runAzTokenCommand(ctx, p.tenantID)
 	if err != nil {
 		return "", err
 	}
@@ -110,10 +110,14 @@ func azBinary() (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("%w: `az` not found on PATH", ErrNoAzureCLI)
+	return "", &SignInError{
+		Reason: "the Azure CLI is not installed",
+		Detail: "`az` is not on PATH",
+		Remedy: installRemedy,
+	}
 }
 
-func runAzTokenCommand(ctx context.Context) (azTokenResponse, error) {
+func runAzTokenCommand(ctx context.Context, tenantID string) (azTokenResponse, error) {
 	var out azTokenResponse
 
 	bin, err := azBinary()
@@ -124,31 +128,41 @@ func runAzTokenCommand(ctx context.Context) (azTokenResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, azTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin,
-		"account", "get-access-token",
-		"--resource", GraphResource,
-		"--output", "json")
+	args := []string{"account", "get-access-token", "--resource", GraphResource, "--output", "json"}
+	if tenantID != "" {
+		args = append(args, "--tenant", tenantID)
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	// The CLI otherwise decorates output with ANSI colour codes that break
 	// JSON parsing on some terminals.
 	cmd.Env = append(cmd.Environ(), "AZURE_CORE_NO_COLOR=true", "AZURE_CORE_ONLY_SHOW_ERRORS=true")
 
 	stdout, err := cmd.Output()
 	if err != nil {
-		return out, classifyAzError(err)
+		return out, classifyAzError(err, tenantID)
 	}
 	if err := json.Unmarshal(stdout, &out); err != nil {
-		return out, fmt.Errorf("%w: parsing az output: %v", ErrNoAzureCLI, err)
+		return out, &SignInError{
+			Reason: "could not read the Azure CLI's reply",
+			Detail: err.Error(),
+			Remedy: loginRemedy(tenantID),
+		}
 	}
 	if out.AccessToken == "" {
-		return out, fmt.Errorf("%w: az returned an empty access token", ErrNoAzureCLI)
+		return out, &SignInError{
+			Reason: "the Azure CLI returned an empty access token",
+			Remedy: loginRemedy(tenantID),
+		}
 	}
 	return out, nil
 }
 
-// classifyAzError turns a failed CLI invocation into either ErrNoAzureCLI
-// (an ordinary "not signed in" state that auto mode should step over) or a
-// real error worth reporting.
-func classifyAzError(err error) error {
+// classifyAzError turns a failed CLI invocation into an error that says what
+// to run. A missing session is by far the most common cause, so it gets its
+// own wording; anything else keeps the CLI's own first line, which usually
+// names the real problem (an expired refresh token, a tenant the account
+// cannot reach).
+func classifyAzError(err error, tenantID string) error {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		msg := strings.TrimSpace(string(exitErr.Stderr))
@@ -158,14 +172,26 @@ func classifyAzError(err error) error {
 			strings.Contains(lower, "please run"),
 			strings.Contains(lower, "no subscription"),
 			strings.Contains(lower, "not logged in"),
+			strings.Contains(lower, "refresh token has expired"),
 			strings.Contains(lower, "interactive authentication is needed"):
-			return fmt.Errorf("%w: not signed in to the Azure CLI", ErrNoAzureCLI)
+			return &SignInError{
+				Reason: "not signed in to the Azure CLI",
+				Remedy: loginRemedy(tenantID),
+			}
 		}
 		if msg != "" {
-			return fmt.Errorf("%w: az failed: %s", ErrNoAzureCLI, firstLine(msg))
+			return &SignInError{
+				Reason: "the Azure CLI could not get a Graph token",
+				Detail: firstLine(msg),
+				Remedy: loginRemedy(tenantID),
+			}
 		}
 	}
-	return fmt.Errorf("%w: %v", ErrNoAzureCLI, err)
+	return &SignInError{
+		Reason: "the Azure CLI could not get a Graph token",
+		Detail: err.Error(),
+		Remedy: loginRemedy(tenantID),
+	}
 }
 
 func firstLine(s string) string {

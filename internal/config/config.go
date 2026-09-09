@@ -9,16 +9,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/idoavrah/entra-tui/internal/auth"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
-	ClientID string
+	// TenantID picks which tenant to ask the Azure CLI for a token for, for
+	// an account signed in to more than one. Empty means the CLI's active one.
 	TenantID string
-	Scopes   []string
-	Method   auth.Method
 	PageSize int
 	GraphURL string
 	Resource graph.Resource
@@ -36,10 +34,7 @@ type Config struct {
 
 // Env var names, all prefixed so they cannot collide with the Azure CLI's own.
 const (
-	EnvClientID = "ENTRA_TUI_CLIENT_ID"
 	EnvTenantID = "ENTRA_TUI_TENANT_ID"
-	EnvAuth     = "ENTRA_TUI_AUTH"
-	EnvScopes   = "ENTRA_TUI_SCOPES"
 	EnvPageSize = "ENTRA_TUI_PAGE_SIZE"
 	EnvGraphURL = "ENTRA_TUI_GRAPH_URL"
 	// EnvDisableUsageTracking opts out of usage tracking, the same as -d.
@@ -74,10 +69,7 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	}
 
 	var (
-		clientID = fs.String("client-id", "", "OAuth client id of the app registration to sign in with")
-		tenantID = fs.String("tenant", "", "tenant id or domain to sign in against (default \"organizations\")")
-		method   = fs.String("auth", "", "sign-in method: auto, browser or azurecli (default \"auto\")")
-		scopes   = fs.String("scopes", "", "comma-separated delegated Graph scopes to request")
+		tenantID = fs.String("tenant", "", "tenant id or domain to get the token for (default: the Azure CLI's active tenant)")
 		pageSize = fs.Int("page-size", 0, "objects requested per Graph page (1-999)")
 		graphURL = fs.String("graph-url", "", "Graph endpoint, for sovereign clouds")
 		resource = fs.String("view", "users", "view to open on: users, groups, appregs, entapps or devices")
@@ -93,22 +85,11 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	}
 
 	cfg := Config{
-		ClientID: firstNonEmpty(*clientID, getenv(EnvClientID), auth.DefaultClientID),
-		TenantID: firstNonEmpty(*tenantID, getenv(EnvTenantID), auth.DefaultTenant),
+		TenantID: firstNonEmpty(*tenantID, getenv(EnvTenantID)),
 		GraphURL: firstNonEmpty(*graphURL, getenv(EnvGraphURL), graph.DefaultBaseURL),
 	}
 
-	parsedMethod, err := auth.ParseMethod(firstNonEmpty(*method, getenv(EnvAuth)))
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Method = parsedMethod
-
-	cfg.Scopes = parseScopes(firstNonEmpty(*scopes, getenv(EnvScopes)))
-	if len(cfg.Scopes) == 0 {
-		cfg.Scopes = auth.DefaultScopes()
-	}
-
+	var err error
 	cfg.PageSize, err = parsePageSize(*pageSize, getenv(EnvPageSize))
 	if err != nil {
 		return Config{}, err
@@ -129,27 +110,6 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	cfg.Resource = res
 
 	return cfg, nil
-}
-
-// parseScopes splits a comma-separated scope list, qualifying bare permission
-// names with the Graph resource URI so that "User.Read.All" works as well as
-// the fully qualified form.
-func parseScopes(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	var out []string
-	for _, raw := range strings.Split(s, ",") {
-		scope := strings.TrimSpace(raw)
-		if scope == "" {
-			continue
-		}
-		if !strings.Contains(scope, "/") {
-			scope = auth.GraphResource + "/" + scope
-		}
-		out = append(out, scope)
-	}
-	return out
 }
 
 // parsePageSize validates the requested page size against Graph's ceiling.
@@ -192,13 +152,13 @@ Flags:
 
 const envHelp = `
 Environment:
-  ENTRA_TUI_CLIENT_ID   same as -client-id
   ENTRA_TUI_TENANT_ID   same as -tenant
-  ENTRA_TUI_AUTH        same as -auth
-  ENTRA_TUI_SCOPES      same as -scopes
   ENTRA_TUI_PAGE_SIZE   same as -page-size
   ENTRA_TUI_GRAPH_URL   same as -graph-url
   ENTRA_TUI_DISABLE_USAGE_TRACKING  same as -d
+
+Sign-in is the Azure CLI and nothing else: run "az login" first, and
+entra-tui borrows that session's Microsoft Graph token.
 
 Use -demo to explore the interface against a generated directory, with no
 tenant, no sign-in and no network.

@@ -1,8 +1,8 @@
 // Command entra-tui is a read-only terminal browser for Microsoft Entra ID.
 //
-// It signs you in -- through the browser, or by borrowing an existing Azure
-// CLI session -- and lists users, groups, app registrations and enterprise
-// applications through Microsoft Graph, scoped to your own delegated
+// It borrows the Microsoft Graph token from an existing `az login` session --
+// the only supported way in -- and lists users, groups, devices, app
+// registrations and enterprise applications, scoped to your own delegated
 // permissions.
 package main
 
@@ -28,9 +28,10 @@ import (
 // matches one taken tomorrow.
 const demoSeed = 7
 
-// signInTimeout bounds sign-in. The browser flow waits on a human, so it is
-// generous; the Azure CLI path returns in under a second either way.
-const signInTimeout = 5 * time.Minute
+// signInTimeout bounds sign-in. Borrowing the CLI's token is usually
+// sub-second, but a cold `az` on a slow machine has been known to take a
+// while, so the ceiling is generous rather than tight.
+const signInTimeout = 60 * time.Second
 
 // Build information, stamped by the release build. The defaults are what a
 // `go build` from a working tree reports.
@@ -50,21 +51,15 @@ func main() {
 	}
 }
 
-// signIn resolves a delegated token, bounded so a browser flow that nobody
-// completes cannot hang forever.
+// signIn borrows the Azure CLI's Graph token, bounded so a wedged `az` cannot
+// hang the launch forever.
 func signIn(ctx context.Context, cfg config.Config) (auth.Provider, error) {
 	ctx, cancel := context.WithTimeout(ctx, signInTimeout)
 	defer cancel()
 
-	opts := auth.Options{
-		ClientID: cfg.ClientID,
-		TenantID: cfg.TenantID,
-		Scopes:   cfg.Scopes,
-		Method:   cfg.Method,
-	}
-	provider, err := auth.Resolve(ctx, opts)
+	provider, err := auth.Resolve(ctx, auth.Options{TenantID: cfg.TenantID})
 	if err != nil {
-		return nil, fmt.Errorf("sign-in failed: %w\n\nRun `az login` first, or use -auth browser on a machine with a browser", err)
+		return nil, fmt.Errorf("sign-in failed: %w", err)
 	}
 	return provider, nil
 }
@@ -88,12 +83,6 @@ func run(args []string) error {
 	defer stop()
 
 	opts := ui.Options{
-		Auth: auth.Options{
-			ClientID: cfg.ClientID,
-			TenantID: cfg.TenantID,
-			Scopes:   cfg.Scopes,
-			Method:   cfg.Method,
-		},
 		GraphURL:  cfg.GraphURL,
 		PageSize:  cfg.PageSize,
 		Resource:  cfg.Resource,
@@ -112,14 +101,19 @@ func run(args []string) error {
 		// Sign in before the interface opens, and fail here if it does not
 		// work. A dashboard that has drawn itself, reported "connected" and
 		// then admits in a corner that it never signed in is worse than no
-		// dashboard: it looks like the tool is working.
-		//
-		// This is also why the browser flow belongs out here. Its handoff
-		// prints and waits, and the alternate screen buffer is no place for
-		// either.
+		// dashboard: it looks like the tool is working. Failing out here also
+		// means the remedy ("run az login") lands on a plain terminal rather
+		// than inside the alternate screen buffer.
 		provider, err := signIn(ctx, cfg)
 		if err != nil {
-			track.CaptureError("sign-in failed", err.Error())
+			var sie *auth.SignInError
+			if errors.As(err, &sie) {
+				// Only the reason travels: the remedy is a constant and the
+				// detail is whatever the CLI printed.
+				track.CaptureError("sign-in failed", sie.Reason)
+			} else {
+				track.CaptureError("sign-in failed", err.Error())
+			}
 			return err
 		}
 		opts.Client = graph.New(provider, graph.WithBaseURL(cfg.GraphURL))

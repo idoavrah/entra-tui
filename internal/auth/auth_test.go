@@ -76,67 +76,6 @@ func TestIdentityLabelPrefersAccountThenName(t *testing.T) {
 	}
 }
 
-func TestParseMethod(t *testing.T) {
-	for in, want := range map[string]Method{
-		"":         MethodAuto,
-		"auto":     MethodAuto,
-		"BROWSER":  MethodBrowser,
-		"azurecli": MethodAzureCLI,
-		" az ":     MethodAzureCLI,
-		"cli":      MethodAzureCLI,
-	} {
-		got, err := ParseMethod(in)
-		if err != nil {
-			t.Errorf("ParseMethod(%q): %v", in, err)
-			continue
-		}
-		if got != want {
-			t.Errorf("ParseMethod(%q) = %q, want %q", in, got, want)
-		}
-	}
-	if _, err := ParseMethod("clientsecret"); err == nil {
-		t.Error("ParseMethod accepted an unsupported method")
-	}
-}
-
-func TestDefaultScopesCoverEveryViewAndTheEdits(t *testing.T) {
-	scopes := DefaultScopes()
-	joined := strings.Join(scopes, " ")
-
-	for _, want := range []string{
-		"User.Read.All",             // users
-		"Device.Read.All",           // devices
-		"GroupMember.ReadWrite.All", // a user's groups, a group's members
-		"Group.ReadWrite.All",       // groups and their owners
-		"Application.ReadWrite.All", // app registrations, enterprise apps, owners
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("default scopes %v missing %s", scopes, want)
-		}
-	}
-}
-
-func TestDefaultScopesStayNarrow(t *testing.T) {
-	joined := strings.Join(DefaultScopes(), " ")
-
-	// The tenant-wide scopes would grant far more than any view needs.
-	for _, forbidden := range []string{
-		"Directory.Read.All", "Directory.ReadWrite.All", "Directory.AccessAsUser.All",
-	} {
-		if strings.Contains(joined, forbidden) {
-			t.Errorf("default scopes include the broad %s", forbidden)
-		}
-	}
-
-	// A ReadWrite scope covers its Read counterpart, so asking for both
-	// would only lengthen the consent prompt.
-	for _, redundant := range []string{"Group.Read.All", "GroupMember.Read.All", "Application.Read.All"} {
-		if strings.Contains(joined, redundant+" ") || strings.HasSuffix(joined, redundant) {
-			t.Errorf("default scopes include %s alongside its ReadWrite counterpart", redundant)
-		}
-	}
-}
-
 func TestAzTokenExpiryPrefersUnixField(t *testing.T) {
 	unix := time.Now().Add(time.Hour).Unix()
 	r := azTokenResponse{ExpiresOn: "2020-01-01 00:00:00.000000", ExpiresOnUnix: unix}
@@ -186,34 +125,61 @@ func TestExpiredAppliesSkew(t *testing.T) {
 	}
 }
 
+func signInError(t *testing.T, err error) *SignInError {
+	t.Helper()
+	var e *SignInError
+	if !errors.As(err, &e) {
+		t.Fatalf("error %v is not a *SignInError", err)
+	}
+	return e
+}
+
 func TestClassifyAzErrorMarksNotSignedIn(t *testing.T) {
-	// A missing session is an ordinary state that auto mode steps over.
-	err := classifyAzError(&exec.ExitError{Stderr: []byte("ERROR: Please run 'az login' to setup account.")})
-	if !errors.Is(err, ErrNoAzureCLI) {
-		t.Errorf("error %v does not wrap ErrNoAzureCLI", err)
+	// The single most common failure, and the one whose whole value is the
+	// remedy it comes with.
+	err := classifyAzError(&exec.ExitError{Stderr: []byte("ERROR: Please run 'az login' to setup account.")}, "")
+	e := signInError(t, err)
+
+	if !strings.Contains(e.Reason, "not signed in") {
+		t.Errorf("reason = %q, want it to say the session is missing", e.Reason)
+	}
+	if !strings.Contains(e.Error(), "az login") {
+		t.Errorf("error = %q, want it to name the command that fixes it", e)
 	}
 }
 
-func TestClassifyAzErrorWrapsUnknownFailures(t *testing.T) {
-	err := classifyAzError(&exec.ExitError{Stderr: []byte("ERROR: something exotic\nsecond line")})
-	if !errors.Is(err, ErrNoAzureCLI) {
-		t.Errorf("error %v does not wrap ErrNoAzureCLI", err)
-	}
-	if strings.Contains(err.Error(), "second line") {
-		t.Errorf("error = %q, want only the first stderr line", err)
+func TestNotSignedInRemedyCarriesTheChosenTenant(t *testing.T) {
+	// Signing in to the wrong tenant fixes nothing, so the suggested command
+	// repeats whichever tenant was asked for.
+	err := classifyAzError(&exec.ExitError{Stderr: []byte("ERROR: Please run 'az login'")}, "contoso.com")
+	if got := err.Error(); !strings.Contains(got, "az login --tenant contoso.com") {
+		t.Errorf("error = %q, want the tenant carried into the remedy", got)
 	}
 }
 
-func TestApplyDefaultsFillsEveryField(t *testing.T) {
-	var o Options
-	o.applyDefaults()
+func TestClassifyAzErrorKeepsOnlyTheFirstStderrLine(t *testing.T) {
+	err := classifyAzError(&exec.ExitError{Stderr: []byte("ERROR: something exotic\nsecond line")}, "")
+	e := signInError(t, err)
 
-	if o.ClientID != DefaultClientID || o.TenantID != DefaultTenant {
-		t.Errorf("applyDefaults left identity fields empty: %+v", o)
+	if !strings.Contains(e.Detail, "something exotic") {
+		t.Errorf("detail = %q, want the CLI's own message", e.Detail)
 	}
-	if o.Method != MethodAuto || len(o.Scopes) == 0 || o.Log == nil {
-		t.Errorf("applyDefaults left behaviour fields empty: %+v", o)
+	if strings.Contains(e.Detail, "second line") {
+		t.Errorf("detail = %q, want only the first stderr line", e.Detail)
 	}
-	// Log must be safe to call so callers need no nil check.
-	o.Log("smoke %s", "test")
+	if !strings.Contains(e.Error(), "az login") {
+		t.Errorf("error = %q, want a remedy even on an unrecognised failure", e)
+	}
+}
+
+func TestSignInErrorReadsAsThreeParts(t *testing.T) {
+	e := &SignInError{Reason: "the sky fell", Detail: "on tuesday", Remedy: "wait"}
+	if got, want := e.Error(), "the sky fell: on tuesday\n\nwait"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+	// Reason alone is what telemetry sends, so it must stand on its own.
+	bare := &SignInError{Reason: "the sky fell"}
+	if got := bare.Error(); got != "the sky fell" {
+		t.Errorf("Error() = %q, want just the reason", got)
+	}
 }
