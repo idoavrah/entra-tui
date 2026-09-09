@@ -46,11 +46,6 @@ func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Command):
 		return m.openPrompt(modeCommand, "")
 	case key.Matches(msg, keys.Refresh):
-		// Before sign-in succeeds there is nothing to count; r retries the
-		// sign-in instead, which is the only thing that can help.
-		if m.client == nil {
-			return m.retryAuth()
-		}
 		return m, m.loadTotals()
 
 	// The tiles are a grid, so the cursor moves in two dimensions.

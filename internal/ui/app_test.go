@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -21,9 +20,10 @@ func (stubProvider) Identity() auth.Identity {
 	return auth.Identity{Account: "ada@contoso.com", TenantID: "tid", Method: auth.MethodBrowser}
 }
 
-// newLoginModel returns a sized model mid sign-in, which is how the app
-// starts.
-func newLoginModel(t *testing.T) Model {
+// newDashboardModel returns a sized model on the dashboard, which is how the
+// app starts: sign-in happened before the interface opened, so the model is
+// handed a client rather than acquiring one.
+func newDashboardModel(t *testing.T) Model {
 	t.Helper()
 	res, ok := graph.Lookup("users")
 	if !ok {
@@ -31,26 +31,20 @@ func newLoginModel(t *testing.T) Model {
 	}
 	// CacheDir keeps every test off the developer's real quick-search cache.
 	m := New(context.Background(), Options{
-		Auth:     auth.Options{TenantID: "organizations"},
 		GraphURL: "http://127.0.0.1:1/v1.0",
 		PageSize: 100,
 		Resource: res,
 		CacheDir: t.TempDir(),
+		Client:   graph.New(stubProvider{}, graph.WithBaseURL("http://127.0.0.1:1/v1.0")),
+		Identity: stubProvider{}.Identity(),
 	})
 	return send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
-}
-
-// signedIn advances a model past the login screen without touching a network.
-func signedIn(t *testing.T, m Model) Model {
-	t.Helper()
-	m.authAttempt++
-	return send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
 }
 
 // browsing returns a model with the users view open and no request pending.
 func browsing(t *testing.T) Model {
 	t.Helper()
-	m := signedIn(t, newLoginModel(t))
+	m := newDashboardModel(t)
 	res, _ := graph.Lookup("users")
 	next, _ := m.openResource(res)
 	m = next.(Model)
@@ -123,35 +117,19 @@ func loadUsers(t *testing.T, m Model, names ...string) Model {
 	return send(t, m, pageMsg{gen: m.gen, page: &graph.Page{Items: items, TotalCount: int64(len(items))}})
 }
 
-// --------------------------------------------------------------- sign-in
+// -------------------------------------------------------------- start-up
 
-func TestStartsSigningInWithNoScreenToFlash(t *testing.T) {
-	// There is nothing to ask, so there is no login screen: the dashboard is
-	// the first and only thing drawn.
-	m := newLoginModel(t)
-
-	if m.screen != screenDashboard {
-		t.Fatalf("screen = %v, want the dashboard", m.screen)
-	}
-	if !m.authing || m.authAttempt == 0 {
-		t.Errorf("authing=%v attempt=%d, want a numbered attempt in flight", m.authing, m.authAttempt)
-	}
-	if m.client != nil || m.coll != nil {
-		t.Error("something was queried before sign-in completed")
-	}
-	if !strings.Contains(m.View(), "signing in") {
-		t.Error("the dashboard does not report the sign-in in progress")
-	}
-}
-
-func TestSignInLandsOnAPopulatedDashboard(t *testing.T) {
-	m := signedIn(t, newLoginModel(t))
+func TestTheDashboardIsTheFirstThingDrawn(t *testing.T) {
+	// Sign-in happens before the interface opens, so by the time there is a
+	// model there is a client: no login screen, no "signing in", and no
+	// state for a sign-in that could still fail.
+	m := newDashboardModel(t)
 
 	if m.screen != screenDashboard {
 		t.Fatalf("screen = %v, want the dashboard", m.screen)
 	}
 	if m.client == nil {
-		t.Error("no Graph client after sign-in")
+		t.Error("the model was built without a client")
 	}
 	if m.coll != nil {
 		t.Error("a view was loaded automatically; the dashboard waits for a choice")
@@ -159,80 +137,13 @@ func TestSignInLandsOnAPopulatedDashboard(t *testing.T) {
 	if m.identity.Account != "ada@contoso.com" {
 		t.Errorf("identity = %q, want the provider's account", m.identity.Account)
 	}
-}
-
-func TestSignInFailureIsShownWithARetry(t *testing.T) {
-	m := newLoginModel(t)
-	m = send(t, m, authDoneMsg{attempt: m.authAttempt,
-		err: fmt.Errorf("%w: not signed in to the Azure CLI", auth.ErrNoAzureCLI)})
-
-	if m.authing {
-		t.Error("the attempt is still marked in flight")
-	}
-	if m.err == nil {
-		t.Fatal("the failure was swallowed; there is no picker to fall back to any more")
-	}
-	if !strings.Contains(m.View(), "Azure CLI") {
-		t.Error("the dashboard does not explain the failure")
-	}
-
-	// r is the only thing that can help before a client exists.
-	retried := send(t, m, press("r"))
-	if !retried.authing {
-		t.Error("r did not start another sign-in attempt")
-	}
-	if retried.authAttempt == m.authAttempt {
-		t.Error("the retry reused the abandoned attempt number")
+	if strings.Contains(m.View(), "not signed in") {
+		t.Error("the dashboard can still claim not to be signed in")
 	}
 }
-
-func TestStaleSignInResultIsIgnored(t *testing.T) {
-	m := newLoginModel(t)
-	m.authAttempt = 5
-	m = send(t, m, authDoneMsg{attempt: 2, provider: stubProvider{}})
-
-	if m.client != nil {
-		t.Error("an abandoned sign-in attempt was accepted")
-	}
-}
-
-func TestUnattendedAttemptIsNumberedBeforeInit(t *testing.T) {
-	// Init takes the model by value, so it cannot number the attempt itself:
-	// the increment would be discarded and the reply dropped as stale. This
-	// is the bug that left the old login screen spinning forever.
-	m := newLoginModel(t)
-	m.Init()
-
-	done := send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
-	if done.client == nil {
-		t.Error("the sign-in reply was dropped as stale")
-	}
-}
-
-func TestBrowserMethodIsStillReachableByFlag(t *testing.T) {
-	// The interface no longer offers it, but -auth browser still selects it.
-	res, _ := graph.Lookup("users")
-	m := New(context.Background(), Options{
-		Auth:     auth.Options{TenantID: "organizations", Method: auth.MethodBrowser},
-		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res, CacheDir: t.TempDir(),
-	})
-	if got := m.signInMethod(); got != auth.MethodBrowser {
-		t.Errorf("signInMethod = %q, want browser", got)
-	}
-
-	def := New(context.Background(), Options{
-		Auth:     auth.Options{TenantID: "organizations"},
-		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res, CacheDir: t.TempDir(),
-	})
-	if got := def.signInMethod(); got != auth.MethodAzureCLI {
-		t.Errorf("default signInMethod = %q, want azurecli", got)
-	}
-}
-
-// -------------------------------------------------------------- dashboard
 
 func TestDashboardListsEveryView(t *testing.T) {
-	view := signedIn(t, newLoginModel(t)).View()
+	view := newDashboardModel(t).View()
 	for _, want := range []string{"Users", "Groups", "App registrations", "Enterprise apps", "Devices"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("dashboard missing %q", want)
@@ -241,7 +152,7 @@ func TestDashboardListsEveryView(t *testing.T) {
 }
 
 func TestDashboardShowsDirectoryTotals(t *testing.T) {
-	m := signedIn(t, newLoginModel(t))
+	m := newDashboardModel(t)
 	m = send(t, m, countMsg{kind: graph.KindUsers, total: 1707600})
 
 	if got := m.totals[graph.KindUsers]; got != 1707600 {
@@ -256,7 +167,7 @@ func TestDashboardShowsDirectoryTotals(t *testing.T) {
 }
 
 func TestDashboardTotalFailureShowsAPlaceholder(t *testing.T) {
-	m := signedIn(t, newLoginModel(t))
+	m := newDashboardModel(t)
 	m = send(t, m, countMsg{kind: graph.KindDevices, err: &graph.APIError{Status: 403}})
 
 	if got := m.totalText(graph.KindDevices); got != "—" {
@@ -268,7 +179,7 @@ func TestDashboardTotalFailureShowsAPlaceholder(t *testing.T) {
 }
 
 func TestDashboardCursorMovesInTwoDimensions(t *testing.T) {
-	m := signedIn(t, newLoginModel(t))
+	m := newDashboardModel(t)
 	columns := m.dashboardColumns()
 
 	m = send(t, m, press("right"))
@@ -287,7 +198,7 @@ func TestDashboardCursorMovesInTwoDimensions(t *testing.T) {
 }
 
 func TestDashboardDoesNotShowRecentSearches(t *testing.T) {
-	m := signedIn(t, newLoginModel(t))
+	m := newDashboardModel(t)
 	m.history.record(string(graph.KindUsers), "finance")
 
 	if strings.Contains(m.View(), "finance") {
@@ -296,7 +207,7 @@ func TestDashboardDoesNotShowRecentSearches(t *testing.T) {
 }
 
 func TestDevicesViewIsReachable(t *testing.T) {
-	m := send(t, signedIn(t, newLoginModel(t)), press("5"))
+	m := send(t, newDashboardModel(t), press("5"))
 
 	if m.coll.res.Kind != graph.KindDevices {
 		t.Fatalf("view = %s, want devices", m.coll.res.Kind)
@@ -320,7 +231,7 @@ func TestDevicesViewIsReachable(t *testing.T) {
 }
 
 func TestDashboardDigitOpensView(t *testing.T) {
-	m := send(t, signedIn(t, newLoginModel(t)), press("3"))
+	m := send(t, newDashboardModel(t), press("3"))
 
 	if m.screen != screenBrowse {
 		t.Fatalf("screen = %v, want screenBrowse", m.screen)
@@ -964,7 +875,7 @@ func TestPromptKeysDoNotTriggerShortcuts(t *testing.T) {
 }
 
 func TestHelpReturnsToTheScreenItWasOpenedFrom(t *testing.T) {
-	m := signedIn(t, newLoginModel(t))
+	m := newDashboardModel(t)
 	m = send(t, m, press("?"))
 	if m.screen != screenHelp {
 		t.Fatalf("screen = %v, want screenHelp", m.screen)

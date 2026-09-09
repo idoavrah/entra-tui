@@ -27,6 +27,9 @@ type Config struct {
 	// NoDelay opens an object's pane on the row's own columns and fills the
 	// rest in afterwards, instead of waiting for the full read.
 	NoDelay bool
+	// DisableUsageTracking turns off anonymous usage tracking and the update
+	// check. Tracking is on by default; this is the opt-out.
+	DisableUsageTracking bool
 	// Version asks for the build stamp and nothing else.
 	Version bool
 }
@@ -39,7 +42,20 @@ const (
 	EnvScopes   = "ENTRA_TUI_SCOPES"
 	EnvPageSize = "ENTRA_TUI_PAGE_SIZE"
 	EnvGraphURL = "ENTRA_TUI_GRAPH_URL"
+	// EnvDisableUsageTracking opts out of usage tracking, the same as -d.
+	EnvDisableUsageTracking = "ENTRA_TUI_DISABLE_USAGE_TRACKING"
 )
+
+// isTruthy reads an opt-out environment variable. Anything set to something
+// other than an explicit "no" counts, because somebody who sets a variable
+// named DISABLE_USAGE_TRACKING at all has said what they mean.
+func isTruthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
 
 // ErrHelp reports that usage was requested, so the caller exits zero.
 var ErrHelp = flag.ErrHelp
@@ -67,6 +83,8 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 		resource = fs.String("view", "users", "view to open on: users, groups, appregs, entapps or devices")
 		demo     = fs.Bool("demo", false, "run against a generated directory, with no tenant and no sign-in")
 		nodelay  = fs.Bool("nodelay", false, "open an object's pane before it has loaded, filling the rest in afterwards")
+		notrack  = fs.Bool("disable-usage-tracking", false, "turn off anonymous usage tracking and the update check (default enabled)")
+		notrackD = fs.Bool("d", false, "shorthand for -disable-usage-tracking")
 		version  = fs.Bool("version", false, "print the build version and exit")
 	)
 
@@ -98,6 +116,10 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 
 	cfg.Demo = *demo
 	cfg.NoDelay = *nodelay
+	// Demo mode promises no network at all, and that promise is worth more
+	// than a statistic, so it opts out on its own behalf.
+	cfg.DisableUsageTracking = *notrack || *notrackD ||
+		isTruthy(getenv(EnvDisableUsageTracking)) || cfg.Demo
 	cfg.Version = *version
 
 	res, ok := graph.Lookup(*resource)
@@ -176,6 +198,7 @@ Environment:
   ENTRA_TUI_SCOPES      same as -scopes
   ENTRA_TUI_PAGE_SIZE   same as -page-size
   ENTRA_TUI_GRAPH_URL   same as -graph-url
+  ENTRA_TUI_DISABLE_USAGE_TRACKING  same as -d
 
 Use -demo to explore the interface against a generated directory, with no
 tenant, no sign-in and no network.

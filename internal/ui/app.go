@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/idoavrah/entra-tui/internal/auth"
 	"github.com/idoavrah/entra-tui/internal/graph"
+	"github.com/idoavrah/entra-tui/internal/telemetry"
 )
 
 // screen is the top-level view.
@@ -60,6 +61,9 @@ type Options struct {
 	// Version is the build stamp shown in the header, so a bug report can
 	// say which build it came from without anyone having to ask.
 	Version string
+	// Telemetry records what kind of thing was done, never what it was done
+	// to. Nil is treated as opted out.
+	Telemetry *telemetry.Client
 
 	// Client and Identity bypass sign-in when supplied, which is how demo
 	// mode runs with no tenant behind it.
@@ -102,13 +106,8 @@ type Model struct {
 	mode       inputMode
 
 	// --- authentication -----------------------------------------------
-	authing     bool
-	authURL     string
-	authURLCh   chan string
-	provider    auth.Provider
-	identity    auth.Identity
-	client      *graph.Client
-	authAttempt int
+	identity auth.Identity
+	client   *graph.Client
 
 	// --- dashboard ----------------------------------------------------
 	dashCursor int
@@ -196,66 +195,25 @@ func New(ctx context.Context, opts Options) Model {
 		ctx:       ctx,
 		opts:      opts,
 		screen:    screenDashboard,
-		authURLCh: make(chan string, 1),
 		history:   loadSearchHistory(opts.CacheDir),
 		totals:    map[graph.Kind]int64{},
 		totalErrs: map[graph.Kind]error{},
 		input:     ti,
 		spin:      sp,
 	}
-	// A supplied client means there is nothing to sign in to -- demo mode.
-	if opts.Client != nil {
-		m.client = opts.Client
-		m.identity = opts.Identity
-	} else {
-		// Sign-in starts immediately and unattended: there is nothing to
-		// ask, so there is no screen to flash. The dashboard shows the
-		// attempt in its status line and fills in as the tokens and counts
-		// arrive.
-		//
-		// The attempt is numbered here, not in Init: Init takes the model by
-		// value, so an increment there would be discarded and the reply
-		// dropped as stale.
-		m.authing = true
-		m.authAttempt = 1
-	}
+	// The client is resolved before the interface opens, so there is nothing
+	// to sign in to here -- and no state for a sign-in that could fail after
+	// a screen has already claimed to be connected.
+	m.client = opts.Client
+	m.identity = opts.Identity
 	m.dashCursor = dashboardIndexOf(opts.Resource.Kind)
 	return m
-}
-
-// signInMethod is how this session authenticates.
-//
-// The browser flow is still implemented and reachable with -auth browser,
-// but the Azure CLI is the default and the only one the interface offers:
-// an existing az session is a decision the user already made, and a screen
-// that flashes past before anyone can read it is not a choice.
-func (m Model) signInMethod() auth.Method {
-	if m.opts.Auth.Method == auth.MethodBrowser {
-		return auth.MethodBrowser
-	}
-	return auth.MethodAzureCLI
-}
-
-// retryAuth starts a fresh sign-in attempt, abandoning any in flight.
-func (m Model) retryAuth() (Model, tea.Cmd) {
-	m.authAttempt++
-	m.authing = true
-	m.err = nil
-	m.authURL = ""
-	return m, m.authenticate(m.signInMethod())
 }
 
 // Init starts the spinner, the listener for the sign-in URL, and the
 // unattended sign-in.
 func (m Model) Init() tea.Cmd {
-	if m.client != nil {
-		return tea.Batch(m.spin.Tick, m.loadTotals())
-	}
-	return tea.Batch(
-		m.spin.Tick,
-		waitForAuthURL(m.authURLCh),
-		m.authenticate(m.signInMethod()),
-	)
+	return tea.Batch(m.spin.Tick, m.loadTotals())
 }
 
 // Update is the Bubble Tea event loop.
@@ -289,14 +247,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clipboardSentMsg:
 		m.pendingClipboard = ""
 		return m, nil
-
-	case authURLMsg:
-		m.authURL = msg.url
-		// Keep listening: a retry produces another URL.
-		return m, waitForAuthURL(m.authURLCh)
-
-	case authDoneMsg:
-		return m.handleAuthDone(msg)
 
 	case pageMsg:
 		return m.handlePage(msg)
@@ -376,26 +326,6 @@ func (m Model) tabRowsHeight() int {
 }
 
 // ---------------------------------------------------------------- handlers
-
-func (m Model) handleAuthDone(msg authDoneMsg) (tea.Model, tea.Cmd) {
-	if msg.attempt != m.authAttempt {
-		return m, nil
-	}
-	m.authing = false
-	m.authURL = ""
-
-	if msg.err != nil {
-		m.err = msg.err
-		return m, nil
-	}
-
-	m.err = nil
-	m.provider = msg.provider
-	m.identity = msg.provider.Identity()
-	m.client = graph.New(msg.provider, graph.WithBaseURL(m.opts.GraphURL))
-	m.screen = screenDashboard
-	return m, m.loadTotals()
-}
 
 // handleCount records a directory total for the dashboard.
 func (m Model) handleCount(msg countMsg) (tea.Model, tea.Cmd) {
@@ -639,6 +569,12 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// track records an event, if tracking is on at all. It is a method so every
+// call site reads the same and a nil client is safe.
+func (m Model) track(name string, props telemetry.Properties) {
+	m.opts.Telemetry.Capture(name, props)
+}
+
 // leaveDetail closes the pane and everything it was showing, back to the
 // table it was opened from.
 func (m Model) leaveDetail() Model {
@@ -849,6 +785,7 @@ func (m Model) runSearch(term string) (tea.Model, tea.Cmd) {
 	if m.screen == screenDetail {
 		m = m.leaveDetail()
 	}
+	m.track("searched", telemetry.Properties{"view": string(m.coll.res.Kind)})
 	m.coll.search = term
 	return m.reload()
 }
@@ -879,6 +816,7 @@ func (m Model) openResource(res graph.Resource) (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.screen = screenBrowse
 	m.dashCursor = dashboardIndexOf(res.Kind)
+	m.track("opened view", telemetry.Properties{"view": string(res.Kind)})
 	return m, m.loadFirst()
 }
 
@@ -914,6 +852,7 @@ func (m Model) reload() (tea.Model, tea.Cmd) {
 
 // enterDetail installs an object in the detail pane and shows it.
 func (m Model) enterDetail(d graph.Detail) Model {
+	m.track("described object", telemetry.Properties{"kind": string(d.Kind)})
 	m.screen = screenDetail
 	m.pending = pendingOpen{}
 	m.detailID = d.Object.ID()
@@ -964,6 +903,7 @@ func (m Model) followLink() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	m.track("followed a link", telemetry.Properties{"to": string(f.Kind)})
 
 	m.detailLoading = true
 	stub := graph.Detail{Kind: f.Kind, Object: graph.Item{"id": f.ID, "displayName": f.Label}}

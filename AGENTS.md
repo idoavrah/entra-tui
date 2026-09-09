@@ -12,6 +12,7 @@ internal/bidi/       right-to-left reordering for non-bidi terminals
 internal/config/     flag + environment resolution
 internal/demo/       generated directory and an in-process Graph stand-in
 internal/graph/      paged Graph client, resources, detail sections
+internal/telemetry/  anonymous opt-out usage tracking, and the update check
 internal/text/       what every string from outside passes through
 internal/ui/         Bubble Tea model, screens, dialogs, frame and table layout
 ```
@@ -51,6 +52,19 @@ carrying an OSC 52 write, a screen clear, a cursor jump and an RTL override.
 **Truncate by display width, not rune count.** One CJK ideograph is two
 columns. `text.Truncate` measures the way the padding measures, so the two
 cannot disagree.
+
+**Sign-in happens before the interface opens.** `main` resolves a provider and
+builds the Graph client; the model is handed one and has no sign-in state at
+all. A dashboard that has drawn itself, reported "connected" and then admits
+in a corner that it never signed in is worse than no dashboard. It is also why
+the browser flow belongs outside the alternate screen buffer, which is no
+place for a handoff that prints and waits.
+
+**Telemetry properties describe the shape, never the subject.** Which view,
+which relationship, how many — never a display name, object id, tenant, UPN or
+search term. This tool browses a directory; none of it belongs in analytics.
+`telemetry.Properties` carries the rule in its doc comment. Demo mode disables
+tracking outright, because the README promises it makes no network calls.
 
 **Writes are never retried.** A `POST` that may already have landed is
 reported, not repeated. Reads back off on 429 and 5xx; nothing retries a 4xx

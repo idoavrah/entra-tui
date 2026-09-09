@@ -168,7 +168,16 @@ func Resolve(ctx context.Context, opts Options) (Provider, error) {
 	if !errors.Is(err, ErrNoAzureCLI) {
 		opts.Log("azure cli sign-in not usable (%v), falling back to browser", err)
 	}
-	return newInteractive(ctx, opts)
+
+	// Both halves of the failure matter. Reporting only the browser's error
+	// blames the fallback for the absence of the thing it was falling back
+	// from -- someone who is simply signed out of the Azure CLI reads a
+	// complaint about xdg-open.
+	interactive, browserErr := newInteractive(ctx, opts)
+	if browserErr != nil {
+		return nil, fmt.Errorf("azure cli: %w; browser: %w", err, browserErr)
+	}
+	return interactive, nil
 }
 
 // expirySkew is how long before true expiry a token is treated as stale, so a
