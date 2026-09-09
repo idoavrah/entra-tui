@@ -161,8 +161,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.detailVP.Width = msg.Width
-		m.detailVP.Height = max(1, msg.Height-detailChromeHeight)
+		m.detailVP.Width = boxInnerWidth(msg.Width)
+		m.detailVP.Height = detailBodyHeight(msg.Height)
+		if m.screen == screenDetail {
+			// Re-wrap: the section layout depends on the frame's width, so a
+			// resize changes the content, not just the window onto it.
+			m.detailVP.SetContent(m.renderDetailBody())
+		}
 		m.clampCursor()
 		return m, nil
 
@@ -587,7 +592,7 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	m.detailRaw = false
 	m.detail = graph.Detail{Kind: m.coll.res.Kind, Object: item}
 	m.detailSections = graph.Sections(m.detail)
-	m.detailVP = viewport.New(m.width, max(1, m.height-detailChromeHeight))
+	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
 	m.detailVP.SetContent(m.renderDetailBody())
 
 	if m.detailID == "" {
@@ -637,7 +642,7 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	m.detailLoading = true
 	m.detail = graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}}
 	m.detailSections = graph.Sections(m.detail)
-	m.detailVP = viewport.New(m.width, max(1, m.height-detailChromeHeight))
+	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
 	m.detailVP.SetContent(m.renderDetailBody())
 	m.err = nil
 	return m, m.loadDetail(res, c.ID)

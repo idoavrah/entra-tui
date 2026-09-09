@@ -11,10 +11,59 @@ import (
 // lookup saves the most common round trip.
 const GraphAppID = "00000003-0000-0000-c000-000000000000"
 
-// maxAssignments bounds how many app role assignments the detail view reads.
-// A widely assigned enterprise app can have tens of thousands; the detail
-// pane is not the place to enumerate them.
-const maxAssignments = 200
+// Bounds on how much of an unbounded relationship the detail view reads. A
+// widely assigned enterprise app, or a group holding every employee, can have
+// tens of thousands of entries; the detail pane is not the place to
+// enumerate them, and the section says when it stopped short.
+const (
+	maxAssignments = 200
+	maxMembers     = 200
+	maxMemberOf    = 200
+)
+
+// collect follows pages of a relationship up to limit, returning the items
+// and whether more remain.
+//
+// A page that fails midway returns what was gathered rather than nothing: a
+// partial member list still answers most questions a reader has.
+func (c *Client) collect(ctx context.Context, q Query, limit int) ([]Item, bool, error) {
+	page, err := c.List(ctx, q)
+	if err != nil {
+		return nil, false, err
+	}
+	items := page.Items
+	for page.NextLink != "" && len(items) < limit {
+		page, err = c.Next(ctx, page.NextLink, false)
+		if err != nil {
+			return items, true, nil
+		}
+		items = append(items, page.Items...)
+	}
+	return items, page.NextLink != "", nil
+}
+
+// MemberOf lists the groups and directory roles an object belongs to.
+//
+// This is the direct membership Graph reports for the object, not the
+// transitive closure: showing the groups someone was actually added to is
+// what an administrator is looking for, and transitiveMemberOf on a
+// well-nested tenant returns an unhelpfully long list.
+func (c *Client) MemberOf(ctx context.Context, path, id string) ([]Item, bool, error) {
+	return c.collect(ctx, Query{
+		Path:   fmt.Sprintf("%s/%s/memberOf", strings.Trim(path, "/"), id),
+		Select: []string{"id", "displayName", "mail", "groupTypes", "securityEnabled", "mailEnabled"},
+		Top:    100,
+	}, maxMemberOf)
+}
+
+// Members lists the direct members of a group.
+func (c *Client) Members(ctx context.Context, groupID string) ([]Item, bool, error) {
+	return c.collect(ctx, Query{
+		Path:   fmt.Sprintf("groups/%s/members", groupID),
+		Select: []string{"id", "displayName", "userPrincipalName", "mail", "accountEnabled", "userType"},
+		Top:    100,
+	}, maxMembers)
+}
 
 // Owners lists the owners of a directory object.
 func (c *Client) Owners(ctx context.Context, path, id string) ([]Item, error) {
@@ -32,27 +81,13 @@ func (c *Client) Owners(ctx context.Context, path, id string) ([]Item, error) {
 // AppRoleAssignedTo lists the users and groups assigned to an enterprise
 // application, following pages up to maxAssignments.
 func (c *Client) AppRoleAssignedTo(ctx context.Context, spID string) ([]Item, bool, error) {
-	page, err := c.List(ctx, Query{
+	return c.collect(ctx, Query{
 		Path: fmt.Sprintf("servicePrincipals/%s/appRoleAssignedTo", spID),
 		Select: []string{
 			"id", "principalId", "principalDisplayName", "principalType", "appRoleId", "createdDateTime",
 		},
 		Top: 100,
-	})
-	if err != nil {
-		return nil, false, err
-	}
-
-	items := page.Items
-	for page.NextLink != "" && len(items) < maxAssignments {
-		page, err = c.Next(ctx, page.NextLink, false)
-		if err != nil {
-			// Partial results still beat none in a read-only browser.
-			return items, true, nil
-		}
-		items = append(items, page.Items...)
-	}
-	return items, page.NextLink != "", nil
+	}, maxAssignments)
 }
 
 // byAppID fetches the single directory object in a collection whose appId

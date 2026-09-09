@@ -26,14 +26,19 @@ const DefaultClientID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
 // directory to browse).
 const DefaultTenant = "organizations"
 
-// DefaultScopes are the least-privilege delegated scopes that cover the four
-// read-only views. Application.Read.All covers both app registrations
-// (/applications) and enterprise apps (/servicePrincipals), so there is no
-// need to ask for the much broader Directory.Read.All.
+// DefaultScopes are the least-privilege delegated scopes that cover the
+// read-only views.
+//
+// Application.Read.All covers both app registrations (/applications) and
+// enterprise apps (/servicePrincipals). GroupMember.Read.All is what lets the
+// detail panes show a user's groups and a group's members; without it those
+// sections report that they could not be read and everything else still
+// works. None of this needs the far broader Directory.Read.All.
 func DefaultScopes() []string {
 	return []string{
 		GraphResource + "/User.Read.All",
 		GraphResource + "/Group.Read.All",
+		GraphResource + "/GroupMember.Read.All",
 		GraphResource + "/Application.Read.All",
 	}
 }

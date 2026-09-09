@@ -234,7 +234,9 @@ func (m *Model) loadDetail(res graph.Resource, id string) tea.Cmd {
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
-		if res.Kind == graph.KindAppRegistrations || res.Kind == graph.KindEnterpriseApps {
+		// Owners exist on applications, service principals and groups alike.
+		if res.Kind == graph.KindAppRegistrations || res.Kind == graph.KindEnterpriseApps ||
+			res.Kind == graph.KindGroups {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -243,7 +245,31 @@ func (m *Model) loadDetail(res graph.Resource, id string) tea.Cmd {
 				defer mu.Unlock()
 				d.Owners, d.OwnersErr = owners, ownersErr
 			}()
+		}
 
+		if res.Kind == graph.KindUsers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				groups, truncated, groupsErr := client.MemberOf(reqCtx, res.Path, id)
+				mu.Lock()
+				defer mu.Unlock()
+				d.Groups, d.GroupsTruncated, d.GroupsErr = groups, truncated, groupsErr
+			}()
+		}
+
+		if res.Kind == graph.KindGroups {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				members, truncated, membersErr := client.Members(reqCtx, id)
+				mu.Lock()
+				defer mu.Unlock()
+				d.Members, d.MembersTruncated, d.MembersErr = members, truncated, membersErr
+			}()
+		}
+
+		if res.Kind == graph.KindAppRegistrations || res.Kind == graph.KindEnterpriseApps {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

@@ -93,7 +93,6 @@ func (m Model) handleLoginKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) renderLogin() string {
 	var b strings.Builder
 
-	b.WriteString(styleHelpTitle.Render("SIGN IN") + "\n\n")
 	b.WriteString(styleDim.Render(
 		"entra-tui reads your directory as you, using delegated permissions.\n"+
 			"Nothing is queried until you sign in and pick a view.") + "\n\n")
@@ -125,7 +124,7 @@ func (m Model) renderLogin() string {
 		b.WriteString("\n" + styleHintDesc.Render("Pick a method to try again."))
 	}
 
-	hints := hintBar(
+	hints := hintBar(m.width,
 		[2]string{"↑/↓", "choose"},
 		[2]string{"enter", "sign in"},
 		[2]string{"1/2", "pick directly"},
@@ -133,13 +132,8 @@ func (m Model) renderLogin() string {
 		[2]string{"q", "quit"},
 	)
 
-	return strings.Join([]string{
-		m.renderHeader(),
-		"",
-		b.String(),
-		"",
-		hints,
-	}, "\n")
+	return m.chrome(styleHelpTitle.Render("SIGN IN"), "",
+		strings.Split(b.String(), "\n"), hints)
 }
 
 // itoa renders a small non-negative integer without pulling in strconv at

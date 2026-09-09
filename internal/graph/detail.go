@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -43,6 +44,16 @@ type Detail struct {
 	Owners []Item
 	// OwnersErr records why owners could not be listed, if they could not.
 	OwnersErr error
+
+	// Groups are the groups and directory roles the object belongs to.
+	Groups          []Item
+	GroupsTruncated bool
+	GroupsErr       error
+
+	// Members are the direct members of a group.
+	Members          []Item
+	MembersTruncated bool
+	MembersErr       error
 
 	// Assignments are appRoleAssignedTo entries for a service principal --
 	// the users and groups the enterprise app is assigned to.
@@ -127,7 +138,7 @@ func userSections(d Detail) []Section {
 		f("Last sync", "onPremisesLastSyncDateTime"),
 	)}
 
-	return compact(essentials, org, contact, sync,
+	return compact(essentials, org, groupsSection(d), contact, sync,
 		Section{Title: "Other properties", Fields: allFields(o, used)})
 }
 
@@ -165,8 +176,110 @@ func groupSections(d Detail) []Section {
 		f("Last sync", "onPremisesLastSyncDateTime"),
 	)}
 
-	return compact(essentials, membership, mail, sync,
+	return compact(essentials, membership, ownersSection(d), membersSection(d), mail, sync,
 		Section{Title: "Other properties", Fields: allFields(o, used)})
+}
+
+// groupsSection lists what the object is a member of.
+func groupsSection(d Detail) Section {
+	s := Section{Title: "Groups"}
+	if d.GroupsErr != nil {
+		s.Note = "Could not read group membership: " + shortError(d.GroupsErr)
+		return s
+	}
+	if len(d.Groups) == 0 {
+		s.Note = "Not a member of any group or directory role."
+		return s
+	}
+	for _, g := range d.Groups {
+		s.Fields = append(s.Fields, Field{
+			Label: orDash(g.String("displayName")),
+			Value: describeDirectoryObject(g),
+		})
+	}
+	if d.GroupsTruncated {
+		s.Note = fmt.Sprintf("Showing the first %d groups.", len(d.Groups))
+	}
+	return s
+}
+
+// membersSection lists a group's direct members.
+func membersSection(d Detail) Section {
+	s := Section{Title: "Members"}
+	if d.MembersErr != nil {
+		s.Note = "Could not read members: " + shortError(d.MembersErr)
+		return s
+	}
+	if len(d.Members) == 0 {
+		s.Note = "This group has no direct members."
+		return s
+	}
+	for _, m := range d.Members {
+		s.Fields = append(s.Fields, Field{
+			Label: orDash(firstNonEmpty(m.String("displayName"), m.String("userPrincipalName"), m.ID())),
+			Value: describeDirectoryObject(m),
+		})
+	}
+	if d.MembersTruncated {
+		s.Note = fmt.Sprintf("Showing the first %d members; the group has more.", len(d.Members))
+	}
+	return s
+}
+
+// describeDirectoryObject summarises a membership entry: what kind of object
+// it is, and the identifier a reader would recognise it by.
+func describeDirectoryObject(i Item) string {
+	kind := objectKind(i)
+	ident := firstNonEmpty(i.String("userPrincipalName"), i.String("mail"))
+	if ident == "" {
+		return kind
+	}
+	return kind + " · " + ident
+}
+
+// objectKind turns the @odata.type annotation into a readable noun. Graph
+// returns heterogeneous collections from memberOf and members, so the type is
+// the only thing distinguishing a nested group from a user.
+func objectKind(i Item) string {
+	switch t := strings.TrimPrefix(i.String("@odata.type"), "#microsoft.graph."); t {
+	case "user":
+		return "User"
+	case "group":
+		return "Group"
+	case "servicePrincipal":
+		return "Service principal"
+	case "device":
+		return "Device"
+	case "directoryRole":
+		return "Directory role"
+	case "orgContact":
+		return "Contact"
+	case "":
+		// $select suppresses the annotation on some collections; fall back to
+		// the shape of the object.
+		if i.String("userPrincipalName") != "" {
+			return "User"
+		}
+		if _, ok := i["securityEnabled"]; ok {
+			return "Group"
+		}
+		return "Object"
+	default:
+		return t
+	}
+}
+
+// shortError renders an error for a section note, preferring the Graph code
+// over a long message.
+func shortError(err error) string {
+	var api *APIError
+	if errors.As(err, &api) {
+		if api.Code != "" {
+			return fmt.Sprintf("%s (%d)", api.Code, api.Status)
+		}
+		return fmt.Sprintf("HTTP %d", api.Status)
+	}
+	return err.Error()
 }
 
 func appRegistrationSections(d Detail) []Section {
@@ -445,7 +558,7 @@ func exposedScopeFields(o Item, used fieldSet) []Field {
 func assignmentsSection(d Detail, o Item) Section {
 	s := Section{Title: "Users and groups"}
 	if d.AssignmentsErr != nil {
-		s.Note = "Could not read assignments: " + d.AssignmentsErr.Error()
+		s.Note = "Could not read assignments: " + shortError(d.AssignmentsErr)
 		return s
 	}
 	if len(d.Assignments) == 0 {
@@ -493,7 +606,7 @@ func appRoleNames(o Item) map[string]string {
 func ownersSection(d Detail) Section {
 	s := Section{Title: "Owners"}
 	if d.OwnersErr != nil {
-		s.Note = "Could not read owners: " + d.OwnersErr.Error()
+		s.Note = "Could not read owners: " + shortError(d.OwnersErr)
 		return s
 	}
 	if len(d.Owners) == 0 {

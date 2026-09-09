@@ -48,8 +48,6 @@ func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) renderDashboard() string {
 	var b strings.Builder
 
-	b.WriteString(styleHelpTitle.Render("VIEWS") + "\n\n")
-
 	for i, res := range graph.All() {
 		marker := "  "
 		title := styleContextVal.Render(res.Title)
@@ -79,7 +77,7 @@ func (m Model) renderDashboard() string {
 		b.WriteString("\n" + styleErr.Render("✗ "+m.err.Error()) + "\n")
 	}
 
-	hints := hintBar(
+	hints := hintBar(m.width,
 		[2]string{"↑/↓", "choose"},
 		[2]string{"enter", "open"},
 		[2]string{"1-4", "open directly"},
@@ -88,11 +86,6 @@ func (m Model) renderDashboard() string {
 		[2]string{"q", "quit"},
 	)
 
-	return strings.Join([]string{
-		m.renderHeader(),
-		m.renderPromptLine(),
-		"",
-		b.String(),
-		hints,
-	}, "\n")
+	return m.chrome(styleHelpTitle.Render("VIEWS"), "",
+		strings.Split(b.String(), "\n"), hints)
 }

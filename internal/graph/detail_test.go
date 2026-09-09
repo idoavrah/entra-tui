@@ -384,3 +384,122 @@ func TestComputedFieldsDoNotDuplicateTheirSources(t *testing.T) {
 		}
 	}
 }
+
+func TestUserDetailShowsGroupMembership(t *testing.T) {
+	u := mustItem(t, `{"id":"u1","displayName":"Ada","userPrincipalName":"ada@x.com"}`)
+	sections := Sections(Detail{
+		Kind: KindUsers, Object: u,
+		Groups: []Item{
+			{"id": "g1", "displayName": "Research", "mail": "research@x.com",
+				"@odata.type": "#microsoft.graph.group"},
+			{"id": "r1", "displayName": "Global Reader",
+				"@odata.type": "#microsoft.graph.directoryRole"},
+		},
+	})
+
+	groups := findSection(t, sections, "Groups")
+	if len(groups.Fields) != 2 {
+		t.Fatalf("got %d entries, want 2", len(groups.Fields))
+	}
+	if got := fieldValue(groups, "Research"); !strings.Contains(got, "Group") {
+		t.Errorf("Research = %q, want it identified as a group", got)
+	}
+	// memberOf returns a heterogeneous collection; a directory role is not a
+	// group and should not be labelled as one.
+	if got := fieldValue(groups, "Global Reader"); !strings.Contains(got, "Directory role") {
+		t.Errorf("Global Reader = %q, want it identified as a directory role", got)
+	}
+}
+
+func TestGroupDetailShowsOwnersAndMembers(t *testing.T) {
+	g := mustItem(t, `{"id":"g1","displayName":"Research","securityEnabled":true}`)
+	sections := Sections(Detail{
+		Kind: KindGroups, Object: g,
+		Owners: []Item{{"id": "u1", "displayName": "Ada", "userPrincipalName": "ada@x.com"}},
+		Members: []Item{
+			{"id": "u2", "displayName": "Grace", "userPrincipalName": "grace@x.com",
+				"@odata.type": "#microsoft.graph.user"},
+			{"id": "g2", "displayName": "Nested", "@odata.type": "#microsoft.graph.group"},
+		},
+	})
+
+	owners := findSection(t, sections, "Owners")
+	if len(owners.Fields) != 1 {
+		t.Errorf("got %d owners, want 1", len(owners.Fields))
+	}
+	members := findSection(t, sections, "Members")
+	if len(members.Fields) != 2 {
+		t.Fatalf("got %d members, want 2", len(members.Fields))
+	}
+	if got := fieldValue(members, "Nested"); !strings.Contains(got, "Group") {
+		t.Errorf("nested group = %q, want it identified as a group", got)
+	}
+	if got := fieldValue(members, "Grace"); !strings.Contains(got, "grace@x.com") {
+		t.Errorf("Grace = %q, want the UPN shown", got)
+	}
+}
+
+func TestEmptyMembershipSectionsExplainThemselves(t *testing.T) {
+	u := mustItem(t, `{"id":"u1","displayName":"Ada"}`)
+	if note := findSection(t, Sections(Detail{Kind: KindUsers, Object: u}), "Groups").Note; note == "" {
+		t.Error("a user in no groups should say so rather than render blank")
+	}
+
+	g := mustItem(t, `{"id":"g1","displayName":"Team"}`)
+	gs := Sections(Detail{Kind: KindGroups, Object: g})
+	if note := findSection(t, gs, "Members").Note; note == "" {
+		t.Error("an empty group should say so")
+	}
+}
+
+func TestTruncatedMembershipSaysSo(t *testing.T) {
+	g := mustItem(t, `{"id":"g1","displayName":"Everyone"}`)
+	members := make([]Item, 3)
+	for i := range members {
+		members[i] = Item{"id": "u", "displayName": "member"}
+	}
+	s := findSection(t, Sections(Detail{
+		Kind: KindGroups, Object: g, Members: members, MembersTruncated: true,
+	}), "Members")
+
+	if !strings.Contains(s.Note, "the group has more") {
+		t.Errorf("note = %q, want it to admit the list is partial", s.Note)
+	}
+}
+
+func TestMembershipFailuresUseTheShortErrorForm(t *testing.T) {
+	// A section note is one line on a crowded pane; a Graph code says as much
+	// as the full message.
+	u := mustItem(t, `{"id":"u1","displayName":"Ada"}`)
+	s := findSection(t, Sections(Detail{
+		Kind: KindUsers, Object: u,
+		GroupsErr: &APIError{Status: 403, Code: "Authorization_RequestDenied",
+			Message: "Insufficient privileges to complete the operation."},
+	}), "Groups")
+
+	if !strings.Contains(s.Note, "Authorization_RequestDenied") {
+		t.Errorf("note = %q, want the Graph code", s.Note)
+	}
+	if strings.Contains(s.Note, "Insufficient privileges to complete") {
+		t.Errorf("note = %q, want the long message left out", s.Note)
+	}
+}
+
+func TestObjectKindFallsBackWhenODataTypeIsAbsent(t *testing.T) {
+	// $select suppresses the annotation on some collections, so the shape of
+	// the object has to decide.
+	for _, tc := range []struct {
+		name string
+		item Item
+		want string
+	}{
+		{"user by upn", Item{"userPrincipalName": "a@x.com"}, "User"},
+		{"group by flag", Item{"securityEnabled": true}, "Group"},
+		{"unknown", Item{"id": "x"}, "Object"},
+		{"annotated", Item{"@odata.type": "#microsoft.graph.servicePrincipal"}, "Service principal"},
+	} {
+		if got := objectKind(tc.item); got != tc.want {
+			t.Errorf("%s: objectKind = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

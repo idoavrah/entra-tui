@@ -8,19 +8,21 @@ keyboard, through **your own permissions** — entra-tui signs you in and issues
 nothing but `GET` requests to Microsoft Graph v1.0.
 
 ```
-Tenant   contoso.onmicrosoft.com                                    ┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬
-Account  ada@contoso.com  ·  browser                                ├┤ │││ │ ├┬┘├─┤   │ │ ││
-Status   connected                                                  └─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴
-: view   / search
-[1] liskov  [2] finance  [3] guest
-Users  [16 of 16]  ↑name  search:liskov
-NAME                     USER PRINCIPAL NAME                TYPE   ENABLED JOB TITLE   DEPARTMENT
-Ada Liskov               ada.liskov@contoso.com             Member yes     Engineer    Research
-Barbara Liskov           barbara.liskov@contoso.com         Member yes     Director    Finance
-                ןהכ הרש  sara.cohen@contoso.com             Member yes     Analyst     Security
+Tenant   contoso.onmicrosoft.com     [1] liskov          [6]              ┌─┐┌┐┌┌┬┐┬─┐┌─┐  ┌┬┐┬ ┬┬
+Account  ada@contoso.com             [2] finance         [7]              ├┤ │││ │ ├┬┘├─┤   │ │ ││
+Signed   browser                     [3] guest           [8]              └─┘┘└┘ ┴ ┴└─┴ ┴   ┴ └─┘┴
+Status   connected                   [4]                 [9]
+                                     [5]                 [0]
+┌──────────────────── Users · 16 of 16 · ↑name · search: liskov ────────────────────┐
+│NAME                 USER PRINCIPAL NAME              TYPE   ENABLED DEPARTMENT    │
+│Ada Liskov           ada.liskov@contoso.com           Member yes     Research      │
+│Barbara Liskov       barbara.liskov@contoso.com       Member yes     Finance       │
+│ןהכ הרש              sara.cohen@contoso.com           Member yes     Security      │
+└───────────────────────────────── more — n / A ────────────────────────────────────┘
 
-enter describe · / search · 1-0 recent · : view · n/A more · r refresh · esc dashboard · ? help
+enter describe · / search · 1-0 recent · : view · n/A more · esc dashboard · ? help
 ```
+
 
 ## Install
 
@@ -90,12 +92,13 @@ entra-tui requests the least-privilege delegated scopes that cover its views:
 | --- | --- |
 | `User.Read.All` | Users |
 | `Group.Read.All` | Groups |
+| `GroupMember.Read.All` | A user's groups, a group's members |
 | `Application.Read.All` | App registrations, enterprise apps, owners, role assignments |
 
 It deliberately does **not** ask for `Directory.Read.All`, which would grant
 far more than these views need.
 
-All three require **admin consent** — that is a property of the Microsoft Graph
+All of these require **admin consent** — that is a property of the Microsoft Graph
 permission model, not of this tool: no delegated scope can enumerate a
 directory without it. A `403` in the status bar means exactly this, and says
 so. Individual sections degrade on their own: if you cannot read owners, the
@@ -129,23 +132,34 @@ Some columns are computed rather than copied straight out of Graph:
 - **App registrations → CRED EXP** shows when the next secret or certificate
   lapses — or `expired`.
 
+## Layout
+
+The header and the hint bar are fixed height and sit outside the frame, so
+content never shifts them. Everything between is boxed, with the screen's
+identity and metadata centred on the top border and unfetched pages
+advertised on the bottom one.
+
+The command and search line is only drawn while `:` or `/` is open — an idle
+prompt is a wasted row.
+
 ## Search
 
 `/` searches **the whole directory**, not just the rows on screen: it
 re-queries Graph with `$search`. That is the only thing that works in a tenant
 of any size, where what you are looking for has usually not been paged in yet.
 
-Every search you run is remembered per view and offered back on the number
-keys:
+Every search you run is kept per view in one of ten **fixed slots**, shown as
+two columns in the header and replayed with `1`–`9` and `0`.
 
-```
-[1] liskov  [2] finance  [3] guest
-```
+Slots do not rearrange. A new term takes the next free slot and, once all ten
+are used, overwrites the oldest **in place**; re-running an existing term
+leaves it exactly where it is. A most-recently-used list would reshuffle the
+bar on every search, so the digit that ran `finance` a moment ago would run
+something else next time — which makes the shortcuts useless from memory.
 
-Press `1`–`9` or `0` to replay one. The lists are per-view — the term that
-finds a person is rarely the term that finds an app registration — and the
-dashboard shows them too, so a repeat lookup is two keys from the home screen.
-History lives for the life of the process; nothing is written to disk.
+The lists are per-view — the term that finds a person is rarely the term that
+finds an app registration — and the dashboard shows them too. History lives
+for the life of the process; nothing is written to disk.
 
 `esc` clears the search; a second `esc` returns to the dashboard.
 
@@ -169,8 +183,19 @@ Exposed permissions · Owners
 *Users and groups* lists the actual `appRoleAssignedTo` assignments with the
 role each grants, falling back to *Default Access* the way the portal does.
 
-**Users and groups** get Essentials / Organisation / Contact / On-premises
-sections.
+**Users** — Essentials · Organisation · **Groups** · Contact · On-premises
+
+*Groups* lists the groups and directory roles the user was actually added to
+(direct `memberOf`, not the transitive closure, which is unhelpfully long on a
+well-nested tenant).
+
+**Groups** — Essentials · Membership · **Owners** · **Members** · Mail ·
+On-premises
+
+Label columns size themselves to the longest label present rather than
+wrapping it, and on a wide terminal the sections spread across two columns.
+Sections are never split across the boundary; the cut is chosen to minimise
+the taller column.
 
 Anything Graph returned that no section claims still appears under *Other
 properties* — the grouped view never hides data the raw view would show.
@@ -188,10 +213,11 @@ registration in your tenant. entra-tui says so rather than failing.
 
 ## Right-to-left text
 
-Hebrew (and Arabic) display names are reordered for display and right-aligned
-within their column, so they read correctly in a terminal that has no idea
-what bidi is — which is almost all of them. The column does not move; only the
-text inside it.
+Hebrew (and Arabic) display names are reordered so they read correctly in a
+terminal that has no idea what bidi is — which is almost all of them. They
+stay **left-aligned** like every other cell: reordering is what makes the text
+readable, and a ragged left edge costs more in a dense table than
+right-alignment is worth.
 
 This is a deliberate simplification of [UAX #9](https://unicode.org/reports/tr9/):
 neutral characters resolve from surrounding context, right-to-left runs are
@@ -207,7 +233,7 @@ implemented. **The underlying data is never modified** — only what is drawn.
 | `pgup` / `pgdn`, `g` / `G` | Page, top / bottom |
 | `enter` | Select / describe |
 | `/` | Search the directory |
-| `1`–`9`, `0` | Replay a recent search (open a view, on the dashboard) |
+| `1`–`9`, `0` | Replay a search slot (open a view, on the dashboard) |
 | `:` | Command prompt (`:users`, `:groups`, `:appregs`, `:entapps`, `:dash`, `:q`) |
 | `esc` | Back one layer: search → view → dashboard |
 | `~` | Dashboard, from anywhere |
@@ -257,7 +283,7 @@ internal/auth/       delegated token acquisition (PKCE, Azure CLI)
 internal/bidi/       right-to-left reordering for non-bidi terminals
 internal/config/     flag + environment resolution
 internal/graph/      paged read-only Graph client, resources, detail sections
-internal/ui/         Bubble Tea model, screens, table layout
+internal/ui/         Bubble Tea model, screens, frame and table layout
 ```
 
 The Graph client keeps objects as loosely typed maps rather than generated

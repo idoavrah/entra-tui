@@ -142,7 +142,7 @@ func TestHeaderCellsMatchesAdmittedColumns(t *testing.T) {
 // unambiguous regardless of editor rendering.
 const hebrewName = "שרה כהן"
 
-func TestRenderCellsRightAlignsHebrew(t *testing.T) {
+func TestRenderCellsLeftAlignsHebrew(t *testing.T) {
 	widths := []int{12, 6}
 	got := renderCells([]string{hebrewName, "Member"}, widths)
 
@@ -150,11 +150,10 @@ func TestRenderCellsRightAlignsHebrew(t *testing.T) {
 	if lipgloss.Width(got) != 12+columnGap+6 {
 		t.Fatalf("row width = %d, want %d", lipgloss.Width(got), 12+columnGap+6)
 	}
-	// ...and the Hebrew is pushed to the right of its own column, which is
-	// where right-to-left text begins.
-	first := []rune(got)[0]
-	if first != ' ' {
-		t.Errorf("first cell starts with %q, want padding before right-aligned Hebrew", first)
+	// ...and Hebrew starts at the left edge like every other cell. Only the
+	// character order is adjusted, not the alignment.
+	if []rune(got)[0] == ' ' {
+		t.Error("the Hebrew cell is indented; it should be left-aligned like any other")
 	}
 	if !strings.Contains(got, "Member") {
 		t.Error("the Latin cell was disturbed")
@@ -170,13 +169,17 @@ func TestRenderCellsLeavesLatinLeftAligned(t *testing.T) {
 
 func TestRenderCellsReordersHebrewForDisplay(t *testing.T) {
 	got := renderCells([]string{hebrewName}, []int{20})
-	// The first logical character must end up rightmost in the cell.
+	// Within the cell's text, the first logical character must come last:
+	// that is what makes it read right-to-left on a terminal with no bidi.
 	logical := []rune(hebrewName)
-	trimmed := strings.TrimRight(got, " ")
-	visual := []rune(trimmed)
+	visual := []rune(strings.TrimRight(got, " "))
 	if visual[len(visual)-1] != logical[0] {
-		t.Errorf("rightmost rune = %q, want the first logical rune %q",
+		t.Errorf("last rune of the cell text = %q, want the first logical rune %q",
 			visual[len(visual)-1], logical[0])
+	}
+	if visual[0] != logical[len(logical)-1] {
+		t.Errorf("first rune of the cell text = %q, want the last logical rune %q",
+			visual[0], logical[len(logical)-1])
 	}
 }
 

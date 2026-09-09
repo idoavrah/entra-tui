@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/idoavrah/entra-tui/internal/auth"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
@@ -274,6 +275,21 @@ func TestSlashRunsAServerSearch(t *testing.T) {
 	}
 }
 
+func TestQuickSearchSlotsKeepTheirDigits(t *testing.T) {
+	// The rendered bar must show each term against a stable digit.
+	m := browsing(t)
+	m.history.record(string(graph.KindUsers), "alpha")
+	m.history.record(string(graph.KindUsers), "beta")
+
+	view := m.View()
+	if !strings.Contains(view, "[1]") || !strings.Contains(view, "[2]") {
+		t.Error("the quick-search bar does not label its slots")
+	}
+	if !strings.Contains(view, "alpha") || !strings.Contains(view, "beta") {
+		t.Error("the quick-search bar does not show both terms")
+	}
+}
+
 func TestSearchIsRecordedAsAQuickSearch(t *testing.T) {
 	m := browsing(t)
 	m = send(t, m, press("/"))
@@ -302,17 +318,27 @@ func TestQuickSearchesAreScopedToTheView(t *testing.T) {
 	}
 }
 
-func TestDigitReplaysARecentSearch(t *testing.T) {
+func TestDigitReplaysItsFixedSlot(t *testing.T) {
+	// Slots are positional, not most-recently-used: the second term recorded
+	// lives in slot 2 and stays there, so "2" always replays it.
 	m := browsing(t)
-	m.history.record(string(graph.KindUsers), "second")
-	m.history.record(string(graph.KindUsers), "first")
+	m.history.record(string(graph.KindUsers), "alpha")
+	m.history.record(string(graph.KindUsers), "beta")
 
 	m = send(t, m, press("2"))
-	if m.coll.search != "second" {
-		t.Errorf("search = %q, want the second most recent term", m.coll.search)
+	if m.coll.search != "beta" {
+		t.Errorf("search = %q, want the term in slot 2", m.coll.search)
 	}
 	if !m.loading {
 		t.Error("replaying a search did not requery")
+	}
+
+	// Running a third search must not disturb what "2" means.
+	m.loading = false
+	m.history.record(string(graph.KindUsers), "gamma")
+	m = send(t, m, press("2"))
+	if m.coll.search != "beta" {
+		t.Errorf("search = %q, want slot 2 unchanged by a later search", m.coll.search)
 	}
 }
 
@@ -743,5 +769,110 @@ func TestFlashOnlyClearedByItsOwnTimer(t *testing.T) {
 	m = send(t, m, flashExpiredMsg{seq: m.flashSeq})
 	if m.flash != "" {
 		t.Error("the matching timer did not clear the message")
+	}
+}
+
+// ------------------------------------------------------- layout invariants
+
+func TestPromptRowAppearsOnlyWhileAPromptIsOpen(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+
+	idle := strings.Split(m.View(), "\n")
+	open := strings.Split(send(t, m, press("/")).View(), "\n")
+
+	// The screen always fills the terminal; the prompt displaces a content
+	// row rather than growing the layout.
+	if len(open) != len(idle) {
+		t.Errorf("view is %d lines with a prompt open and %d idle, want a constant height",
+			len(open), len(idle))
+	}
+	// Idle: the frame starts straight after the header, with no reserved row.
+	if !strings.HasPrefix(idle[headerHeight], boxTopLeft) {
+		t.Errorf("idle line %q should be the frame, not a reserved prompt row", idle[headerHeight])
+	}
+	// Open: the prompt takes that row and the frame moves down one.
+	if !strings.HasPrefix(strings.TrimSpace(open[headerHeight]), "/") {
+		t.Errorf("line %q is not the open search prompt", open[headerHeight])
+	}
+	if !strings.HasPrefix(open[headerHeight+1], boxTopLeft) {
+		t.Errorf("line %q should be the frame under an open prompt", open[headerHeight+1])
+	}
+}
+
+func TestHeaderHeightIsFixedAcrossScreens(t *testing.T) {
+	base := loadUsers(t, browsing(t), "Ada")
+	for _, s := range []screen{screenDashboard, screenBrowse, screenDetail, screenHelp} {
+		m := base
+		m.screen = s
+		lines := strings.Split(m.View(), "\n")
+		// The frame's top border always sits immediately after the header.
+		if !strings.HasPrefix(lines[headerHeight], boxTopLeft) {
+			t.Errorf("screen %v: line %d = %q, want the frame's top border", s, headerHeight, lines[headerHeight])
+		}
+	}
+}
+
+func TestContentIsFramedAndTheFrameCarriesTheTitle(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	lines := strings.Split(m.View(), "\n")
+
+	top := lines[headerHeight]
+	if !strings.Contains(top, "Users") {
+		t.Errorf("top border %q does not carry the screen title", top)
+	}
+	if !strings.Contains(top, "50") && !strings.Contains(top, "1") {
+		t.Errorf("top border %q does not carry the row count", top)
+	}
+	// Data rows sit inside vertical borders.
+	row := lines[headerHeight+2]
+	if !strings.HasPrefix(row, boxVertical) || !strings.HasSuffix(row, boxVertical) {
+		t.Errorf("content row %q is not framed", row)
+	}
+}
+
+func TestEveryRenderedLineFitsTheTerminal(t *testing.T) {
+	base := loadUsers(t, browsing(t), "Ada", "Bob")
+	for _, size := range []tea.WindowSizeMsg{
+		{Width: 80, Height: 24}, {Width: 120, Height: 40}, {Width: 200, Height: 60},
+	} {
+		m := send(t, base, size)
+		for _, s := range []screen{screenLogin, screenDashboard, screenBrowse, screenDetail, screenHelp} {
+			m.screen = s
+			for i, line := range strings.Split(m.View(), "\n") {
+				if w := lipgloss.Width(line); w > size.Width {
+					t.Errorf("screen %v at %dx%d: line %d is %d cells, over the %d-cell terminal",
+						s, size.Width, size.Height, i, w, size.Width)
+				}
+			}
+		}
+	}
+}
+
+func TestFooterStaysTwoLinesAtTheBottom(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	lines := strings.Split(m.View(), "\n")
+
+	// Last line is the hint bar; the one before it is the status line.
+	if !strings.Contains(lines[len(lines)-1], "help") {
+		t.Errorf("last line = %q, want the key hints", lines[len(lines)-1])
+	}
+	if !strings.HasPrefix(lines[len(lines)-3], boxBottomLeft) {
+		t.Errorf("line %q should be the frame's bottom border", lines[len(lines)-3])
+	}
+}
+
+func TestUserTableShowsTheRequestedColumns(t *testing.T) {
+	m := loadUsers(t, browsing(t), "Ada")
+	view := m.View()
+
+	for _, want := range []string{"NAME", "USER PRINCIPAL NAME", "TYPE", "ENABLED", "DEPARTMENT"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("users table is missing the %s column", want)
+		}
+	}
+	for _, unwanted := range []string{"JOB TITLE", "AGE"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("users table still shows the %s column", unwanted)
+		}
 	}
 }

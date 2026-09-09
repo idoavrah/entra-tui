@@ -59,6 +59,9 @@ var (
 
 	// styleSectionTitle heads each group in the detail pane.
 	styleSectionTitle = lipgloss.NewStyle().Foreground(colHeadFg).Bold(true)
+
+	// styleBorder draws the frame around the content area.
+	styleBorder = lipgloss.NewStyle().Foreground(colDim)
 )
 
 // accentStyle tints text with a resource's own accent colour, matching the way

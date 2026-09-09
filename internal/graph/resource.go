@@ -131,9 +131,7 @@ func usersResource() Resource {
 			{Title: "USER PRINCIPAL NAME", MinWidth: 20, Weight: 4, Value: func(i Item) string { return i.String("userPrincipalName") }},
 			{Title: "TYPE", MinWidth: 6, Value: func(i Item) string { return i.String("userType") }},
 			{Title: "ENABLED", MinWidth: 7, Value: func(i Item) string { return YesNo(i, "accountEnabled") }},
-			{Title: "JOB TITLE", MinWidth: 10, Weight: 2, Value: func(i Item) string { return i.String("jobTitle") }},
-			{Title: "DEPARTMENT", MinWidth: 10, Weight: 2, Value: func(i Item) string { return i.String("department") }},
-			{Title: "AGE", MinWidth: 6, Value: func(i Item) string { return AgeOf(i, "createdDateTime") }},
+			{Title: "DEPARTMENT", MinWidth: 12, Weight: 3, Value: func(i Item) string { return i.String("department") }},
 		},
 	}
 }

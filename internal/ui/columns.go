@@ -95,9 +95,11 @@ func layout(cols []graph.Column, avail int) []int {
 // renderCells joins pre-rendered cell text into one fixed-width line,
 // truncating any cell that overflows its column.
 //
-// Right-to-left values are reordered for display and aligned to the right of
-// their column, which is where a Hebrew name begins. The column itself does
-// not move, so the table stays a table.
+// Right-to-left values are reordered so they read correctly in a terminal
+// without bidi support, but they stay left-aligned like every other cell.
+// Reordering is what makes the text readable; alignment is a separate
+// question, and a ragged left edge costs more than the typographic nicety of
+// right-aligning is worth in a dense table.
 func renderCells(cells []string, widths []int) string {
 	var b strings.Builder
 	for i, w := range widths {
@@ -111,20 +113,12 @@ func renderCells(cells []string, widths []int) string {
 
 		// Truncate while the text is still in logical order, so an
 		// over-long Hebrew name loses its tail rather than its beginning.
-		rtl := bidi.IsRTL(cell)
 		cell = bidi.Display(graph.Truncate(cell, w))
 
 		// Pad by display width rather than byte or rune count so that wide
 		// (CJK) glyphs in a display name do not shear the columns to the right.
-		pad := w - lipgloss.Width(cell)
-		if pad < 0 {
-			pad = 0
-		}
-		if rtl {
-			b.WriteString(strings.Repeat(" ", pad))
-			b.WriteString(cell)
-		} else {
-			b.WriteString(cell)
+		b.WriteString(cell)
+		if pad := w - lipgloss.Width(cell); pad > 0 {
 			b.WriteString(strings.Repeat(" ", pad))
 		}
 	}
