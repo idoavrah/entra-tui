@@ -45,8 +45,17 @@ jobs:
       # Checks the module against the Go vulnerability database. It reports
       # only the advisories whose vulnerable symbols this code actually
       # reaches, so a finding here is one worth acting on.
+      #
+      # GOTOOLCHAIN is overridden for this step alone. setup-go pins it to
+      # "local" so the project is built by exactly the version go.mod names,
+      # which is what you want for the build -- but govulncheck is a tool,
+      # not a dependency, and its own go directive runs ahead of ours. Under
+      # "local" it cannot be built at all; under "auto" Go fetches the
+      # toolchain it asks for and the project's own version is untouched.
       - name: Check dependencies for known vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        env:
+          GOTOOLCHAIN: auto
 
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
