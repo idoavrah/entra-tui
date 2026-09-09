@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+
+	"github.com/idoavrah/entra-tui/internal/text"
 )
 
 // claims is the subset of an access token payload used for display.
@@ -48,12 +50,16 @@ func decodeClaims(token string) claims {
 }
 
 // identityFrom builds a display identity from a raw access token.
+//
+// The claims are drawn in the header, and nothing verified the signature over
+// them, so they are scrubbed of anything a terminal would act on before they
+// get there -- the same treatment directory data gets.
 func identityFrom(token string, method Method) Identity {
 	c := decodeClaims(token)
 	return Identity{
-		Account:  c.account(),
-		Name:     c.Name,
-		TenantID: c.TenantID,
+		Account:  text.Sanitize(c.account()),
+		Name:     text.Sanitize(c.Name),
+		TenantID: text.Sanitize(c.TenantID),
 		Method:   method,
 	}
 }

@@ -5,37 +5,37 @@ Signed   demo                                   ? help    ←→ tab            
 Status   connected                              q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 ┌─────────────────────────────────────────────────────────────────────────────────── Groups · 100 of 130 ────────────────────────────────────────────────────────────────────────────────────┐
-│NAME                                                            TYPE                        MEMBERSHIP MAIL                                                         VISIBILITY SYNCED AGE   │
-│Art & Animation Council 66                                      Microsoft 365               Assigned   team66@aetherforge.games                                     Private    no     ····  │
-│Art & Animation Crew 24                                         Microsoft 365               Assigned   team24@aetherforge.games                                     Private    no     ······│
-│Art & Animation Crew 50                                         Security                    Assigned                                                                Private    yes    ······│
-│Art & Animation Guild 11                                        Security                    Assigned                                                                Public     no     ······│
-│Art & Animation Guild 110                                       Security                    Assigned                                                                Public     no     ······│
-│Art & Animation Guild 129                                       Microsoft 365               Assigned   team129@aetherforge.games                                    Private    yes    ······│
-│Art & Animation Squad 124                                       Security                    Assigned                                                                Public     yes    ······│
-│Art & Animation Squad 3                                         Microsoft 365               Assigned   team3@aetherforge.games                                      Public     no     ······│
-│Art & Animation Squad 44                                        Security                    Assigned                                                                Private    no     ····· │
-│Art & Animation Squad 56                                        Security                    Dynamic                                                                 Public     no     ······│
-│Art & Animation Strike Team 118                                 Security                    Assigned                                                                Public     no     ····  │
-│Art & Animation Strike Team 119                                 Security                    Dynamic                                                                 Private    no     ······│
-│Art & Animation Strike Team 35                                  Security                    Dynamic                                                                 Private    no     ····  │
-│Art & Animation Strike Team 51                                  Microsoft 365               Assigned   team51@aetherforge.games                                     Private    no     ····  │
-│Audio Council 29                                                Security                    Assigned                                                                Private    yes    ······│
-│Audio Council 90                                                Microsoft 365               Assigned   team90@aetherforge.games                                     Private    no     ····  │
-│Audio Council 98                                                Security                    Dynamic                                                                 Private    no     ····  │
-│Audio Crew 80                                                   Security                    Assigned                                                                Public     no     ······│
-│Audio Guild 34                                                  Security                    Assigned                                                                Public     yes    ····· │
-│Audio Guild 91                                                  Security                    Dynamic                                                                 Private    no     ··    │
-│Audio Squad 100                                                 Security                    Assigned                                                                Public     yes    ····  │
-│Audio Squad 31                                                  Security                    Assigned                                                                Public     yes    ····  │
-│Audio Squad 63                                                  Microsoft 365               Dynamic    team63@aetherforge.games                                     Private    no     ······│
-│Audio Strike Team 84                                            Microsoft 365               Dynamic    team84@aetherforge.games                                     Public     no     ······│
-│Ember & Ash Council 127                                         Security                    Assigned                                                                Private    no     ······│
-│Ember & Ash Squad 12                                            Microsoft 365               Assigned   team12@aetherforge.games                                     Private    no     ····  │
-│Ember & Ash Strike Team 32                                      Security                    Assigned                                                                Public     no     ······│
-│Engine Council 120                                              Microsoft 365               Assigned   team120@aetherforge.games                                    Public     yes    ······│
-│Engine Council 13                                               Security                    Assigned                                                                Private    no     ······│
-│Engine Council 53                                               Security                    Assigned                                                                Public     no     ····  │
+│ NAME                                                           TYPE                        MEMBERSHIP MAIL                                                        VISIBILITY SYNCED AGE    │
+│ Art & Animation Council 66                                     Microsoft 365               Assigned   team66@aetherforge.games                                    Private    no     ····   │
+│ Art & Animation Crew 24                                        Microsoft 365               Assigned   team24@aetherforge.games                                    Private    no     ······ │
+│ Art & Animation Crew 50                                        Security                    Assigned                                                               Private    yes    ······ │
+│ Art & Animation Guild 11                                       Security                    Assigned                                                               Public     no     ······ │
+│ Art & Animation Guild 110                                      Security                    Assigned                                                               Public     no     ······ │
+│ Art & Animation Guild 129                                      Microsoft 365               Assigned   team129@aetherforge.games                                   Private    yes    ······ │
+│ Art & Animation Squad 124                                      Security                    Assigned                                                               Public     yes    ······ │
+│ Art & Animation Squad 3                                        Microsoft 365               Assigned   team3@aetherforge.games                                     Public     no     ······ │
+│ Art & Animation Squad 44                                       Security                    Assigned                                                               Private    no     ·····  │
+│ Art & Animation Squad 56                                       Security                    Dynamic                                                                Public     no     ······ │
+│ Art & Animation Strike Team 118                                Security                    Assigned                                                               Public     no     ····   │
+│ Art & Animation Strike Team 119                                Security                    Dynamic                                                                Private    no     ······ │
+│ Art & Animation Strike Team 35                                 Security                    Dynamic                                                                Private    no     ····   │
+│ Art & Animation Strike Team 51                                 Microsoft 365               Assigned   team51@aetherforge.games                                    Private    no     ····   │
+│ Audio Council 29                                               Security                    Assigned                                                               Private    yes    ······ │
+│ Audio Council 90                                               Microsoft 365               Assigned   team90@aetherforge.games                                    Private    no     ····   │
+│ Audio Council 98                                               Security                    Dynamic                                                                Private    no     ····   │
+│ Audio Crew 80                                                  Security                    Assigned                                                               Public     no     ······ │
+│ Audio Guild 34                                                 Security                    Assigned                                                               Public     yes    ·····  │
+│ Audio Guild 91                                                 Security                    Dynamic                                                                Private    no     ··     │
+│ Audio Squad 100                                                Security                    Assigned                                                               Public     yes    ····   │
+│ Audio Squad 31                                                 Security                    Assigned                                                               Public     yes    ····   │
+│ Audio Squad 63                                                 Microsoft 365               Dynamic    team63@aetherforge.games                                    Private    no     ······ │
+│ Audio Strike Team 84                                           Microsoft 365               Dynamic    team84@aetherforge.games                                    Public     no     ······ │
+│ Ember & Ash Council 127                                        Security                    Assigned                                                               Private    no     ······ │
+│ Ember & Ash Squad 12                                           Microsoft 365               Assigned   team12@aetherforge.games                                    Private    no     ····   │
+│ Ember & Ash Strike Team 32                                     Security                    Assigned                                                               Public     no     ······ │
+│ Engine Council 120                                             Microsoft 365               Assigned   team120@aetherforge.games                                   Public     yes    ······ │
+│ Engine Council 13                                              Security                    Assigned                                                               Private    no     ······ │
+│ Engine Council 53                                              Security                    Assigned                                                               Public     no     ····   │
 └─────────────────────────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────────────────────────┘
 enter describe  ·  0-9 replay a search  ·  r refresh
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

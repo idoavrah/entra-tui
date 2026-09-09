@@ -870,11 +870,33 @@ func TestPairJumpOpensTheCounterpart(t *testing.T) {
 	if m.coll.res.Kind != graph.KindEnterpriseApps {
 		t.Errorf("view = %s, want the enterprise apps view", m.coll.res.Kind)
 	}
+	// A jump is an open like any other: the app registration stays on screen
+	// until the service principal has been read, rather than flashing the
+	// two fields the pairing carries.
+	if m.pending.id != "sp1" {
+		t.Fatalf("pending id = %q, want the paired service principal", m.pending.id)
+	}
+	if m.detailID != "app1" {
+		t.Errorf("detailID = %q, want the app registration still shown", m.detailID)
+	}
+
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:   graph.KindEnterpriseApps,
+		Object: graph.Item{"id": "sp1", "displayName": "Contoso"},
+	}})
 	if m.detailID != "sp1" {
 		t.Errorf("detailID = %q, want the paired service principal", m.detailID)
 	}
+	if m.detailRes.Kind != graph.KindEnterpriseApps {
+		t.Errorf("detailRes = %s, want the enterprise apps view", m.detailRes.Kind)
+	}
 	if m.screen != screenDetail {
 		t.Errorf("screen = %v, want to land in the paired detail view", m.screen)
+	}
+	// The jump replaces the pane rather than stacking on it: esc goes to the
+	// counterpart's own table, not back to the app registration.
+	if len(m.detailStack) != 0 {
+		t.Errorf("detailStack has %d frames, want the jump to replace the pane", len(m.detailStack))
 	}
 }
 

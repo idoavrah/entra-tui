@@ -320,6 +320,23 @@ so the key hint names where it will take you, and the jump is instant.
 Many enterprise apps — every Microsoft-published one — have no app
 registration in your tenant. entra-tui says so rather than failing.
 
+## Untrusted text
+
+A display name is whatever somebody typed into it, and in most tenants any
+member can create an object and name it. entra-tui treats every string from
+Graph as untrusted before drawing it:
+
+- Characters a terminal **acts on** rather than draws are removed — C0 and C1
+  controls, `DEL`, and the bidirectional overrides and isolates. Without this,
+  a name could clear the screen, move the cursor, repaint a confirmation
+  dialog into a decoy, or emit an OSC 52 sequence to write your clipboard.
+- Text is cut by **display width**, not character count, so a name of
+  double-width glyphs cannot overflow its column and push the frame apart.
+- The **raw view** (`R`) stays faithful: it escapes those characters as
+  `\uXXXX` rather than dropping them, so nothing is hidden from you.
+
+See [SECURITY.md](SECURITY.md) for the rest of the security model.
+
 ## Right-to-left text
 
 Hebrew (and Arabic) display names are reordered so they read correctly in a

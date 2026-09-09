@@ -1048,9 +1048,7 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	m.coll = newCollection(res)
 	m.cursor, m.offset = 0, 0
 	m.dashCursor = dashboardIndexOf(res.Kind)
-	m.detailRes = res
 	m.detailStack = nil
-	m = m.enterDetail(graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}})
 	m.detailLoading = true
 	m.err = nil
 	m.loading = true
@@ -1058,7 +1056,18 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	// The table behind the pane is loaded too. Without it, backing out of a
 	// paired object landed on an empty list: the collection had been swapped
 	// for the counterpart's view but never populated.
-	return m, tea.Batch(m.loadDetail(res, c.ID), m.loadFirst())
+	load := tea.Batch(m.loadDetail(res, c.ID), m.loadFirst())
+
+	// A jump is an open like any other, so it waits for the object rather
+	// than flashing the two fields the pairing happens to carry.
+	if !m.opts.NoDelay {
+		m.pending = pendingOpen{res: res, id: c.ID}
+		return m, load
+	}
+	m.detailRes = res
+	m = m.enterDetail(graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}})
+	m.detailLoading = true
+	return m, load
 }
 
 func (m Model) copyCurrentID() (tea.Model, tea.Cmd) {

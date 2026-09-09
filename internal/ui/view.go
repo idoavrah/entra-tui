@@ -17,6 +17,9 @@ const (
 	boxChrome    = 2 // top and bottom border
 	// tableHeadHeight is the column header row, drawn inside the frame.
 	tableHeadHeight = 1
+	// tableMargin is the blank column either side of a table inside its
+	// frame, so the text is not flush against the border.
+	tableMargin = 1
 )
 
 // quickSearchRows is the height of the quick-search grid: ten slots in two
@@ -636,15 +639,25 @@ func hintBar(width int, pairs ...[2]string) string {
 // ------------------------------------------------------------ browse screen
 
 func (m Model) renderBrowse() string {
-	inner := boxInnerWidth(m.width)
+	// The table is inset by a space on each side, so its text does not sit
+	// flush against the frame. The margin is part of the row rather than
+	// outside it, which keeps the selection bar spanning the full width.
+	inner := boxInnerWidth(m.width) - 2*tableMargin
 	cols := m.coll.res.Columns
 	widths := layout(cols, inner)
 
+	pad := func(line string) string {
+		if fill := inner - lipgloss.Width(line); fill > 0 {
+			line += spaces(fill)
+		}
+		return spaces(tableMargin) + line + spaces(tableMargin)
+	}
+
 	body := make([]string, 0, m.contentHeight())
-	body = append(body, styleTableHead.Render(headerCells(cols, widths)))
+	body = append(body, styleTableHead.Render(pad(headerCells(cols, widths))))
 
 	if m.coll.len() == 0 {
-		body = append(body, styleDim.Render(m.emptyMessage()))
+		body = append(body, spaces(tableMargin)+styleDim.Render(m.emptyMessage()))
 	}
 
 	height := m.tableHeight()
@@ -653,18 +666,11 @@ func (m Model) renderBrowse() string {
 		if !ok {
 			break
 		}
-		line := renderCells(cells, widths)
 		style := rowStyle(m.coll.res, item)
 		if i == m.cursor {
-			// Pad to the frame's inner width so the selection bar spans the
-			// row rather than stopping at the last non-blank character.
-			if pad := inner - lipgloss.Width(line); pad > 0 {
-				line += spaces(pad)
-			}
 			style = selected(style)
 		}
-		line = style.Render(line)
-		body = append(body, line)
+		body = append(body, style.Render(pad(renderCells(cells, widths))))
 	}
 
 	hints := hintBar(m.width,

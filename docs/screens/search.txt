@@ -5,32 +5,32 @@ Signed   demo                                   ? help    ←→ tab           [
 Status   connected                              q quit    pg↑↓ page        [4]                    [9]                     ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 ┌───────────────────────────────────────────────────────────────────────── Users · 25 of 25 · search: storm · ↑name ─────────────────────────────────────────────────────────────────────────┐
-│NAME                                                 USER PRINCIPAL NAME                                                     TYPE   ENABLED DEPARTMENT                                      │
-│Bram Stormrider                                      bram.stormrider8@aetherforge.onmicrosoft.com                            Member yes     Publishing                                      │
-│Cassia Stormrider                                    cassia.stormrider7@aetherforge.onmicrosoft.com                          Guest  yes     Art & Animation                                 │
-│Corvin Stormrider                                    corvin.stormrider14@aetherforge.onmicrosoft.com                         Member no      Engine                                          │
-│Draxin Stormrider                                    draxin.stormrider2@aetherforge.onmicrosoft.com                          Member yes     Engine                                          │
-│Elowen Stormrider                                    elowen.stormrider15@aetherforge.onmicrosoft.com                         Member yes     Gameplay                                        │
-│Fenris Stormrider                                    fenris.stormrider16@aetherforge.onmicrosoft.com                         Member yes     Quality Assurance                               │
-│Ilyana Stormrider                                    ilyana.stormrider13@aetherforge.onmicrosoft.com                         Guest  no      Engine                                          │
-│Isolde Stormrider                                    isolde.stormrider17@aetherforge.onmicrosoft.com                         Guest  yes     Art & Animation                                 │
-│Jorund Stormrider                                    jorund.stormrider18@aetherforge.onmicrosoft.com                         Member yes     Art & Animation                                 │
-│Kaelen Stormrider                                    kaelen.stormrider0@aetherforge.onmicrosoft.com                          Member no      Live Ops                                        │
-│Lyra Stormrider                                      lyra.stormrider19@aetherforge.onmicrosoft.com                           Member yes     Live Ops                                        │
-│Nyx Stormrider                                       nyx.stormrider6@aetherforge.onmicrosoft.com                             Member yes     Narrative                                       │
-│Osric Stormrider                                     osric.stormrider20@aetherforge.onmicrosoft.com                          Member yes     Gameplay                                        │
-│Quill Stormrider                                     quill.stormrider10@aetherforge.onmicrosoft.com                          Member yes     Engine                                          │
-│Riven Stormrider                                     riven.stormrider11@aetherforge.onmicrosoft.com                          Member yes     Gameplay                                        │
-│Rowan Stormrider                                     rowan.stormrider22@aetherforge.onmicrosoft.com                          Guest  yes     Gameplay                                        │
-│Sable Stormrider                                     sable.stormrider9@aetherforge.onmicrosoft.com                           Member yes     Audio                                           │
-│Sylvara Stormrider                                   sylvara.stormrider1@aetherforge.onmicrosoft.com                         Member yes     Live Ops                                        │
-│Tamsin Stormrider                                    tamsin.stormrider23@aetherforge.onmicrosoft.com                         Guest  yes     Gameplay                                        │
-│Thorne Stormrider                                    thorne.stormrider5@aetherforge.onmicrosoft.com                          Member no      Engine                                          │
-│Ulric Stormrider                                     ulric.stormrider24@aetherforge.onmicrosoft.com                          Member yes     Engine                                          │
-│Vesper Stormrider                                    vesper.stormrider4@aetherforge.onmicrosoft.com                          Member no      Audio                                           │
-│Wren Stormrider                                      wren.stormrider25@aetherforge.onmicrosoft.com                           Member yes     Player Support                                  │
-│Yrsa Stormrider                                      yrsa.stormrider26@aetherforge.onmicrosoft.com                           Guest  yes     Publishing                                      │
-│Zephyr Stormrider                                    zephyr.stormrider27@aetherforge.onmicrosoft.com                         Member yes     Audio                                           │
+│ NAME                                                 USER PRINCIPAL NAME                                                   TYPE   ENABLED DEPARTMENT                                       │
+│ Bram Stormrider                                      bram.stormrider8@aetherforge.onmicrosoft.com                          Member yes     Publishing                                       │
+│ Cassia Stormrider                                    cassia.stormrider7@aetherforge.onmicrosoft.com                        Guest  yes     Art & Animation                                  │
+│ Corvin Stormrider                                    corvin.stormrider14@aetherforge.onmicrosoft.com                       Member no      Engine                                           │
+│ Draxin Stormrider                                    draxin.stormrider2@aetherforge.onmicrosoft.com                        Member yes     Engine                                           │
+│ Elowen Stormrider                                    elowen.stormrider15@aetherforge.onmicrosoft.com                       Member yes     Gameplay                                         │
+│ Fenris Stormrider                                    fenris.stormrider16@aetherforge.onmicrosoft.com                       Member yes     Quality Assurance                                │
+│ Ilyana Stormrider                                    ilyana.stormrider13@aetherforge.onmicrosoft.com                       Guest  no      Engine                                           │
+│ Isolde Stormrider                                    isolde.stormrider17@aetherforge.onmicrosoft.com                       Guest  yes     Art & Animation                                  │
+│ Jorund Stormrider                                    jorund.stormrider18@aetherforge.onmicrosoft.com                       Member yes     Art & Animation                                  │
+│ Kaelen Stormrider                                    kaelen.stormrider0@aetherforge.onmicrosoft.com                        Member no      Live Ops                                         │
+│ Lyra Stormrider                                      lyra.stormrider19@aetherforge.onmicrosoft.com                         Member yes     Live Ops                                         │
+│ Nyx Stormrider                                       nyx.stormrider6@aetherforge.onmicrosoft.com                           Member yes     Narrative                                        │
+│ Osric Stormrider                                     osric.stormrider20@aetherforge.onmicrosoft.com                        Member yes     Gameplay                                         │
+│ Quill Stormrider                                     quill.stormrider10@aetherforge.onmicrosoft.com                        Member yes     Engine                                           │
+│ Riven Stormrider                                     riven.stormrider11@aetherforge.onmicrosoft.com                        Member yes     Gameplay                                         │
+│ Rowan Stormrider                                     rowan.stormrider22@aetherforge.onmicrosoft.com                        Guest  yes     Gameplay                                         │
+│ Sable Stormrider                                     sable.stormrider9@aetherforge.onmicrosoft.com                         Member yes     Audio                                            │
+│ Sylvara Stormrider                                   sylvara.stormrider1@aetherforge.onmicrosoft.com                       Member yes     Live Ops                                         │
+│ Tamsin Stormrider                                    tamsin.stormrider23@aetherforge.onmicrosoft.com                       Guest  yes     Gameplay                                         │
+│ Thorne Stormrider                                    thorne.stormrider5@aetherforge.onmicrosoft.com                        Member no      Engine                                           │
+│ Ulric Stormrider                                     ulric.stormrider24@aetherforge.onmicrosoft.com                        Member yes     Engine                                           │
+│ Vesper Stormrider                                    vesper.stormrider4@aetherforge.onmicrosoft.com                        Member no      Audio                                            │
+│ Wren Stormrider                                      wren.stormrider25@aetherforge.onmicrosoft.com                         Member yes     Player Support                                   │
+│ Yrsa Stormrider                                      yrsa.stormrider26@aetherforge.onmicrosoft.com                         Guest  yes     Publishing                                       │
+│ Zephyr Stormrider                                    zephyr.stormrider27@aetherforge.onmicrosoft.com                       Member yes     Audio                                            │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │

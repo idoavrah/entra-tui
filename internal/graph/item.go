@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/idoavrah/entra-tui/internal/text"
 )
 
 // Item is a single directory object as returned by Graph.
@@ -51,7 +53,7 @@ func (i Item) Strings(key string) []string {
 	out := make([]string, 0, len(raw))
 	for _, v := range raw {
 		if s, ok := v.(string); ok {
-			out = append(out, s)
+			out = append(out, text.Sanitize(s))
 		}
 	}
 	return out
@@ -101,12 +103,18 @@ func (i Item) Keys() []string {
 }
 
 // JSON renders the object as indented JSON for the raw detail view.
+//
+// This is the one screen that shows the object exactly as Graph returned it,
+// so nothing is dropped. encoding/json escapes the control characters
+// already; the directionality overrides it passes through get the same
+// treatment, so the document says what is really there without the terminal
+// acting on it.
 func (i Item) JSON() string {
 	b, err := json.MarshalIndent(i, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("<unrenderable object: %v>", err)
 	}
-	return string(b)
+	return text.Escape(string(b))
 }
 
 // renderValue flattens an arbitrary decoded JSON value to one display line.
@@ -115,7 +123,7 @@ func renderValue(v any) string {
 	case nil:
 		return ""
 	case string:
-		return t
+		return text.Sanitize(t)
 	case bool:
 		return strconv.FormatBool(t)
 	case float64:
@@ -138,6 +146,6 @@ func renderValue(v any) string {
 		}
 		return string(b)
 	default:
-		return fmt.Sprint(t)
+		return text.Sanitize(fmt.Sprint(t))
 	}
 }

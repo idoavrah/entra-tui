@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/idoavrah/entra-tui/internal/text"
 )
 
 // Age renders a duration the way k9s does: the two most significant units,
@@ -80,20 +82,10 @@ func YesNo(i Item, key string) string {
 	return "no"
 }
 
-// Truncate shortens s to width, using a single-rune ellipsis so column
-// alignment is preserved.
+// Truncate shortens display text to a number of terminal columns. It is
+// text.Truncate under a name the rendering code already uses everywhere.
 func Truncate(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= width {
-		return s
-	}
-	if width == 1 {
-		return "…"
-	}
-	return string(runes[:width-1]) + "…"
+	return text.Truncate(s, width)
 }
 
 // firstNonEmpty returns the first non-blank string.

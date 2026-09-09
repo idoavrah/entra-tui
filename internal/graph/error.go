@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/idoavrah/entra-tui/internal/text"
 )
 
 // APIError is a structured Microsoft Graph error response.
@@ -24,7 +26,10 @@ func (e *APIError) Error() string {
 		return "no permission"
 	}
 
-	msg := e.Message
+	// Graph's message is text from a server, and it echoes back the query
+	// -- property names among them. It gets the same treatment as any other
+	// text from outside before it reaches a terminal.
+	msg := text.Sanitize(e.Message)
 	if msg == "" {
 		msg = http.StatusText(e.Status)
 	}

@@ -5,37 +5,37 @@ Signed   demo                                   ? help    ←→ tab            
 Status   connected                              q quit    pg↑↓ page                                                       ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║       ██║   ╚██████╔╝██║
                                                                                                                           ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 ┌─────────────────────────────────────────────────────────────────────────────────── Devices · 100 of 160 ───────────────────────────────────────────────────────────────────────────────────┐
-│NAME                                                                       OS                      VERSION                 JOIN TYPE                     COMPLIANT MANAGED ENABLED LAST SEEN│
-│ANVIL-AND-1003                                                             Android                 14                      Microsoft Entra joined        yes       yes     yes     ···      │
-│ANVIL-AND-1053                                                             Android                 14                      Registered                    yes       yes     yes     ···      │
-│ANVIL-AND-1058                                                             Android                 14                      Hybrid joined                 yes       yes     yes     ··       │
-│ANVIL-AND-1063                                                             Android                 14                      Microsoft Entra joined        yes       yes     yes     ···      │
-│ANVIL-AND-1068                                                             Android                 14                      Registered                    yes       yes     no      ···      │
-│ANVIL-AND-1078                                                             Android                 14                      Microsoft Entra joined        no        yes     yes     ···      │
-│ANVIL-AND-1088                                                             Android                 14                      Hybrid joined                 yes       yes     yes     ···      │
-│ANVIL-AND-1098                                                             Android                 14                      Registered                    yes       yes     yes     ··       │
-│ANVIL-AND-1113                                                             Android                 14                      Registered                    yes       yes     yes     ··       │
-│ANVIL-AND-1123                                                             Android                 14                      Microsoft Entra joined        yes       yes     yes     ··       │
-│ANVIL-AND-1128                                                             Android                 14                      Registered                    yes       yes     yes     ···      │
-│ANVIL-AND-1148                                                             Android                 14                      Hybrid joined                 yes       yes     yes     ··       │
-│ANVIL-AND-1153                                                             Android                 14                      Microsoft Entra joined        yes       yes     no      ··       │
-│ANVIL-LIN-1002                                                             Linux                   6.8.0                   Registered                    yes       yes     yes     ···      │
-│ANVIL-LIN-1007                                                             Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ···      │
-│ANVIL-LIN-1027                                                             Linux                   6.8.0                   Microsoft Entra joined        yes       yes     yes     ···      │
-│ANVIL-LIN-1037                                                             Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ···      │
-│ANVIL-LIN-1052                                                             Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ···      │
-│ANVIL-LIN-1067                                                             Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ··       │
-│ANVIL-LIN-1092                                                             Linux                   6.8.0                   Registered                    yes       yes     yes     ···      │
-│ANVIL-LIN-1107                                                             Linux                   6.8.0                   Registered                    yes       yes     yes     ···      │
-│ANVIL-LIN-1122                                                             Linux                   6.8.0                   Registered                    yes       yes     yes     ···      │
-│ANVIL-LIN-1132                                                             Linux                   6.8.0                   Microsoft Entra joined        no        yes     yes     ···      │
-│ANVIL-LIN-1137                                                             Linux                   6.8.0                   Registered                    yes       yes     yes     ···      │
-│ANVIL-MAC-1026                                                             macOS                   14.5                    Registered                    yes       yes     yes     ···      │
-│ANVIL-MAC-1086                                                             macOS                   14.5                    Registered                    yes       yes     yes     ···      │
-│ANVIL-MAC-1106                                                             macOS                   14.5                    Hybrid joined                 yes       yes     yes     ···      │
-│ANVIL-MAC-1121                                                             macOS                   14.5                    Hybrid joined                 yes       yes     yes     ···      │
-│ANVIL-MAC-1126                                                             macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···      │
-│ANVIL-MAC-1156                                                             macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···      │
+│ NAME                                                                     OS                      VERSION                 JOIN TYPE                     COMPLIANT MANAGED ENABLED LAST SEEN │
+│ ANVIL-AND-1003                                                           Android                 14                      Microsoft Entra joined        yes       yes     yes     ···       │
+│ ANVIL-AND-1053                                                           Android                 14                      Registered                    yes       yes     yes     ···       │
+│ ANVIL-AND-1058                                                           Android                 14                      Hybrid joined                 yes       yes     yes     ··        │
+│ ANVIL-AND-1063                                                           Android                 14                      Microsoft Entra joined        yes       yes     yes     ···       │
+│ ANVIL-AND-1068                                                           Android                 14                      Registered                    yes       yes     no      ···       │
+│ ANVIL-AND-1078                                                           Android                 14                      Microsoft Entra joined        no        yes     yes     ···       │
+│ ANVIL-AND-1088                                                           Android                 14                      Hybrid joined                 yes       yes     yes     ···       │
+│ ANVIL-AND-1098                                                           Android                 14                      Registered                    yes       yes     yes     ··        │
+│ ANVIL-AND-1113                                                           Android                 14                      Registered                    yes       yes     yes     ··        │
+│ ANVIL-AND-1123                                                           Android                 14                      Microsoft Entra joined        yes       yes     yes     ··        │
+│ ANVIL-AND-1128                                                           Android                 14                      Registered                    yes       yes     yes     ···       │
+│ ANVIL-AND-1148                                                           Android                 14                      Hybrid joined                 yes       yes     yes     ··        │
+│ ANVIL-AND-1153                                                           Android                 14                      Microsoft Entra joined        yes       yes     no      ··        │
+│ ANVIL-LIN-1002                                                           Linux                   6.8.0                   Registered                    yes       yes     yes     ···       │
+│ ANVIL-LIN-1007                                                           Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ···       │
+│ ANVIL-LIN-1027                                                           Linux                   6.8.0                   Microsoft Entra joined        yes       yes     yes     ···       │
+│ ANVIL-LIN-1037                                                           Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ···       │
+│ ANVIL-LIN-1052                                                           Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ···       │
+│ ANVIL-LIN-1067                                                           Linux                   6.8.0                   Hybrid joined                 yes       yes     yes     ··        │
+│ ANVIL-LIN-1092                                                           Linux                   6.8.0                   Registered                    yes       yes     yes     ···       │
+│ ANVIL-LIN-1107                                                           Linux                   6.8.0                   Registered                    yes       yes     yes     ···       │
+│ ANVIL-LIN-1122                                                           Linux                   6.8.0                   Registered                    yes       yes     yes     ···       │
+│ ANVIL-LIN-1132                                                           Linux                   6.8.0                   Microsoft Entra joined        no        yes     yes     ···       │
+│ ANVIL-LIN-1137                                                           Linux                   6.8.0                   Registered                    yes       yes     yes     ···       │
+│ ANVIL-MAC-1026                                                           macOS                   14.5                    Registered                    yes       yes     yes     ···       │
+│ ANVIL-MAC-1086                                                           macOS                   14.5                    Registered                    yes       yes     yes     ···       │
+│ ANVIL-MAC-1106                                                           macOS                   14.5                    Hybrid joined                 yes       yes     yes     ···       │
+│ ANVIL-MAC-1121                                                           macOS                   14.5                    Hybrid joined                 yes       yes     yes     ···       │
+│ ANVIL-MAC-1126                                                           macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···       │
+│ ANVIL-MAC-1156                                                           macOS                   14.5                    Microsoft Entra joined        no        yes     yes     ···       │
 └─────────────────────────────────────────────────────────────────────────────── more below — scroll to load ────────────────────────────────────────────────────────────────────────────────┘
 enter describe  ·  0-9 replay a search  ·  r refresh
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
