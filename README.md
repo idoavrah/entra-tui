@@ -5,37 +5,10 @@
 A terminal UI for **Microsoft Entra ID**, in the spirit of
 [k9s](https://k9scli.io) and [terraform-tui](https://github.com/idoavrah/terraform-tui).
 
-Browse users, groups, app registrations and enterprise applications from the
-keyboard, through **your own permissions** — entra-tui signs you in and issues
-nothing but `GET` requests to Microsoft Graph v1.0.
+Browse users, groups, app registrations, enterprise apps and devices from the
+keyboard, through **your own permissions**.
 
-```
-Tenant   aetherforge-demo-tenant                : view    esc back          [0] stormrider         [5]
-Account  kaelen.stormrider0@aetherforge.onmi…   / search  c copy            [1] engine             [6]
-Signed   demo                                   ~ home    ↑↓ move           [2]                    [7]
-Status   connected                              ? help    ←→ tab            [3]                    [8]
-                                                q quit    pg↑↓ page         [4]                    [9]
-┌─────────────────────────────────── Users · 25 of 25 · search: stormrider · ↑name ────────────────────────────────────┐
-│NAME                            USER PRINCIPAL NAME                         TYPE   ENABLED DEPARTMENT                 │
-│Bram Stormrider                 bram.stormrider8@aetherforge.onmicrosoft.c… Member yes     Publishing                 │
-│Cassia Stormrider               cassia.stormrider7@aetherforge.onmicrosoft… Guest  yes     Art & Animation            │
-│Corvin Stormrider               corvin.stormrider14@aetherforge.onmicrosof… Member no      Engine                     │
-│Draxin Stormrider               draxin.stormrider2@aetherforge.onmicrosoft… Member yes     Engine                     │
-│Elowen Stormrider               elowen.stormrider15@aetherforge.onmicrosof… Member yes     Gameplay                   │
-│Fenris Stormrider               fenris.stormrider16@aetherforge.onmicrosof… Member yes     Quality Assurance          │
-│Ilyana Stormrider               ilyana.stormrider13@aetherforge.onmicrosof… Guest  no      Engine                     │
-│Isolde Stormrider               isolde.stormrider17@aetherforge.onmicrosof… Guest  yes     Art & Animation            │
-│Jorund Stormrider               jorund.stormrider18@aetherforge.onmicrosof… Member yes     Art & Animation            │
-│Kaelen Stormrider               kaelen.stormrider0@aetherforge.onmicrosoft… Member no      Live Ops                   │
-│Lyra Stormrider                 lyra.stormrider19@aetherforge.onmicrosoft.… Member yes     Live Ops                   │
-│Nyx Stormrider                  nyx.stormrider6@aetherforge.onmicrosoft.com Member yes     Narrative                  │
-│Osric Stormrider                osric.stormrider20@aetherforge.onmicrosoft… Member yes     Gameplay                   │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-
-enter describe  ·  0-9 replay a search  ·  r refresh
-Dashboard › Users "stormrider"
-```
-
+![The users view](docs/images/users.png)
 
 ## Install
 
@@ -43,13 +16,11 @@ Dashboard › Users "stormrider"
 go install github.com/idoavrah/entra-tui/cmd/entra-tui@latest
 ```
 
-Or download a binary from the [releases](https://github.com/idoavrah/entra-tui/releases),
-or build from source:
+Or grab a binary from [Releases](https://github.com/idoavrah/entra-tui/releases).
+Then run it — it borrows your existing `az login` session:
 
 ```sh
-git clone https://github.com/idoavrah/entra-tui
-cd entra-tui
-go build ./cmd/entra-tui
+entra-tui
 ```
 
 ## Try it without a tenant
@@ -58,104 +29,28 @@ go build ./cmd/entra-tui
 entra-tui -demo
 ```
 
-Demo mode runs against a generated directory served in-process — a fictional
-game studio with ~420 people, 130 groups, 85 app registrations and 160
-devices. No tenant, no sign-in, no network. It is what the screen captures in
-[`docs/screens/`](docs/screens) are rendered from.
+Demo mode generates a fictional game studio's directory in process and serves
+it from a Graph stand-in with **no tenant, no sign-in and no network**. Every
+screenshot here is that directory — 420 people, 130 groups, 85 app
+registrations, 160 devices — seeded, so it looks the same tomorrow, and salted
+with disabled accounts, guests, lapsed credentials, nested groups and
+right-to-left names.
 
-## How it flows
+## The dashboard
 
-entra-tui has three levels, and **nothing is queried until you ask for it**:
+![The dashboard](docs/images/dashboard.png)
 
-1. **Login** — pick a sign-in method. No network traffic before you choose.
-2. **Dashboard** — pick a view. Still no queries; the dashboard also shows
-   each view's recent searches.
-3. **A view** — the table. `esc` walks back a level, `~` jumps home from
-   anywhere.
+Nothing is queried until you ask. Sign-in runs unattended on start — no login
+screen to click past — and the dashboard reports it, with `r` to retry.
 
-Sign-in happens on start, unattended, from your existing `az login` session —
-there is no login screen to click past. If it fails, the dashboard says so and
-`r` retries.
+The tiles are k9s's pulse screen: one card per view with the directory-wide
+total from Graph's `$count` endpoint, which returns a bare integer for the
+whole collection. It is the only cheap way to size a directory; paging one to
+count it would cost thousands of requests. A view you cannot enumerate shows
+no number.
 
-General keys live in the header, k9s-style; the footer carries only what the
-screen in front of you does.
-
-The dashboard is a tile grid in the spirit of k9s's pulse screen: one card
-per view, each showing the directory-wide total in large numerals. Totals come
-from Graph's `$count` endpoint, which returns a bare integer for the whole
-collection — the only cheap way to size a directory, since paging one to count
-it would cost thousands of requests. A view you cannot enumerate simply shows
-no number; `r` retries.
-
-## Signing in
-
-entra-tui only ever acts as **you** — a delegated token, never an app-only
-one. There is no client-secret mode, by design.
-
-| Method | What happens |
-| --- | --- |
-| **Azure CLI** (default) | Borrows the Graph token from an existing `az login` session. No prompt at all. |
-| **Browser** (`-auth browser`) | OAuth 2.0 authorization code + PKCE against a loopback redirect. MFA and Conditional Access work exactly as on the web. |
-
-**entra-tui signs in through the Azure CLI, without asking.** An existing
-`az login` session is a decision you already made, and entra-tui keeps **no
-token cache on disk**, so reusing it is what saves a browser round trip on
-every launch. The browser flow is still implemented and reachable with
-`-auth browser`, but it is not offered in the interface.
-
-### Which app registration?
-
-By default entra-tui authenticates as **Microsoft Graph Command Line Tools**
-(`14d82eec-204b-4c2f-b7e8-296a70dab67e`) — a Microsoft first-party public
-client that already has the loopback redirect URIs an interactive flow needs.
-For most tenants that means zero setup.
-
-If your tenant blocks it, register your own and point entra-tui at it:
-
-```sh
-az ad app create --display-name entra-tui \
-  --sign-in-audience AzureADMyOrg \
-  --public-client-redirect-uris http://localhost
-
-export ENTRA_TUI_CLIENT_ID=<the appId you just created>
-export ENTRA_TUI_TENANT_ID=<your tenant id or domain>
-```
-
-The app registration must be a **public client** (no secret) with
-`http://localhost` as a redirect URI under *Mobile and desktop applications*.
-
-### Permissions
-
-entra-tui requests the least-privilege delegated scopes that cover its views:
-
-| Scope | Covers |
-| --- | --- |
-| `User.Read.All` | Users |
-| `Device.Read.All` | Devices |
-| `Group.ReadWrite.All` | Groups and their owners |
-| `GroupMember.ReadWrite.All` | A user's groups, a group's members |
-| `Application.ReadWrite.All` | App registrations, enterprise apps, owners, role assignments |
-
-A `ReadWrite` scope covers its `Read` counterpart, so asking for both would
-only lengthen the consent prompt.
-
-It deliberately does **not** ask for `Directory.Read.All`, which would grant
-far more than these views need.
-
-All of these require **admin consent** — that is a property of the Microsoft Graph
-permission model, not of this tool: no delegated scope can enumerate a
-directory without it. A `403` in the status bar means exactly this, and says
-so. Individual sections degrade on their own: if you cannot read owners, the
-Owners section explains that instead of the whole view failing.
-
-entra-tui reads the directory and can **add and remove members and owners**.
-It creates, deletes and renames nothing.
-
-Override the scopes for an even narrower token:
-
-```sh
-entra-tui -scopes User.Read.All,Group.Read.All
-```
+General keys live in the header; the footer carries only what the screen in
+front of you does. `esc` walks back a level, `~` jumps home.
 
 ## Views
 
@@ -167,252 +62,273 @@ entra-tui -scopes User.Read.All,Group.Read.All
 | `4` | `:entapps` | Enterprise apps | `/servicePrincipals` |
 | `5` | `:devices` | Devices | `/devices` |
 
-**Search results are sorted by name**; an unfiltered view is not. Graph
-refuses `$orderby` alongside `$search`, so matches would otherwise arrive in
-relevance order, which is not an order anyone can scan — a handful of them is
-worth sorting client-side, and later pages of matches merge into place rather
-than appending at the bottom. An unfiltered view stays in the order the
-directory returned it, because sorting it would re-order the rows already on
-screen every time a page lands, moving the row under the cursor while it is
-being read. Your selected row follows its object across a re-sort.
+`:` narrows as you type: `:d` leaves `dash` and `devices`, `↑`/`↓` pick.
 
-Some columns are computed rather than copied straight out of Graph:
+Some columns are computed rather than copied. **Groups → TYPE** collapses
+`groupTypes` / `mailEnabled` / `securityEnabled` into the label the portal
+shows; **App registrations → REDIRECTS** totals the URIs across the three
+platform objects Graph splits them over, **SECRETS** counts secrets and
+certificates together since both are ways in, and **CRED EXP** shows when the
+next lapses.
 
-- **Groups → TYPE** collapses `groupTypes` / `mailEnabled` / `securityEnabled`
-  into the label the Entra portal shows.
-- **App registrations → REDIRECTS** totals the redirect URIs across the three
-  platform objects Graph splits them over, and **SECRETS** counts client
-  secrets and certificates together — both are ways in.
-- **App registrations → CRED EXP** shows when the next secret or certificate
-  lapses — or `expired`.
-
-Rows are tinted as a whole rather than per cell: a disabled user or service
-principal is dimmed, a non-compliant device or an app with a lapsed credential
-is warned. Reading one flag out of a column of fifty is what a colour is for.
-
-## Layout
-
-The header and the hint bar are fixed height and sit outside the frame, so
-content never shifts them. Everything between is boxed, with the screen's
-identity and metadata centred on the top border and unfetched pages
-advertised on the bottom one.
-
-The command and search line is only drawn while `:` or `/` is open — an idle
-prompt is a wasted row.
+Rows are tinted whole rather than per cell — a disabled user dimmed, a lapsed
+credential warned. Reading one flag out of a column of fifty is what a colour
+is for, and the tint survives the cursor landing on the row.
 
 ## Search
 
-`/` searches **the whole directory**, not just the rows on screen: it
-re-queries Graph with `$search`. That is the only thing that works in a tenant
-of any size, where what you are looking for has usually not been paged in yet.
+![A search, with the slots filled](docs/images/search.png)
 
-A search that **finds something** is kept per view in one of ten **fixed
-slots**, shown as two columns in the header and replayed with `0`–`9`. The
-slots are numbered from zero so the digit on a slot is the digit you press,
-and one that found nothing is forgotten — otherwise a misspelling would sit
-there with a digit of its own for the rest of the session.
+`/` searches **the whole directory**, not the rows on screen: it re-queries
+Graph with `$search`. In a tenant of any size, what you want has usually not
+been paged in yet.
 
-The grid is a fixed size and sits beside the wordmark; it does not stretch
-with the terminal, and it is not drawn on the dashboard, where the digits
-open views instead.
+A search that **finds something** takes one of ten fixed slots, replayed with
+`0`–`9`. The digit on a slot is the digit you press, and a search that found
+nothing is forgotten rather than sitting there all session.
 
-Slots do not rearrange. A new term takes the next free slot and, once all ten
-are used, overwrites the oldest **in place**; re-running an existing term
-leaves it exactly where it is. A most-recently-used list would reshuffle the
-bar on every search, so the digit that ran `finance` a moment ago would run
-something else next time — which makes the shortcuts useless from memory.
+Slots never rearrange: a new term takes the next free one and, once full,
+overwrites the oldest **in place**. A most-recently-used list reshuffles on
+every search, which makes the shortcuts useless from memory. They are per
+view, cached at mode `0600` since search terms name people.
 
-The lists are per-view — the term that finds a person is rarely the term that
-finds an app registration. Opening `/` starts from an empty pattern rather
-than the term in force: the common case is looking for something new, and the
-previous term is one keystroke away in its slot.
-
-Slots are cached under your user cache directory (`~/.cache/entra-tui/` on
-Linux, `~/Library/Caches/entra-tui/` on macOS) so they survive a restart. The
-file is owner-readable only, since search terms can name people.
-
-`esc` backs out one layer at a time. From a table it leaves for the dashboard
-— it does not unpick the search on the way out, which cost a second press and
-a wasted round trip; run an empty search to clear one. From a detail pane it
-returns to the object you followed a link from, if there was one, and only
-then to the table.
+**Search results are sorted by name; an unfiltered view is not.** Graph
+refuses `$orderby` alongside `$search`, so matches arrive in relevance order,
+which nobody can scan — a handful is worth sorting client-side. An unfiltered
+view keeps the directory's order, because sorting it would re-order rows
+already on screen every time a page lands, moving the row under the cursor as
+it is read.
 
 ## Detail view
 
-`enter` describes the selected object. The pane re-reads it **without** a
-`$select` projection and gathers the follow-up lookups that make it
-intelligible, then groups everything into sections.
+![An app registration](docs/images/app-registration.png)
 
-`enter` in a membership list opens that object in a pane of its own, so a
-group's members and a user's groups are traversable rather than dead text.
-The trail along the bottom row shows how far in you are — the view in its own
-accent, the objects you linked through dimmed behind the one in front — and
-`esc` unwinds it one object at a time.
+`enter` describes the selected object: the pane re-reads it **without** a
+`$select` projection, gathers the follow-up lookups that make it intelligible,
+and groups everything into sections.
 
-**App registrations** — Essentials · Authentication · Certificates & secrets ·
-API permissions · App roles · Exposed API · Owners
+It is split: the object's **own fields stay at the top**, and everything
+enumerating *other* objects becomes a **tab strip below** — an unbounded
+member list has no business pushing an object's own fields off the screen.
+Wide terminals get two columns, cut where the taller one is shortest and never
+through a section.
 
-API permissions are resolved from GUIDs to names by looking up each referenced
-API's service principal, so you see `Delegated User.Read.All` rather than
-`Scope e1fe6dd8-…`. Near-expiry credentials and implicit-grant issuance are
-highlighted.
+Anything no section claims appears under *Other properties*; the grouped view
+never hides what `R`, the raw JSON, would show.
 
-**Enterprise apps** — Essentials · Properties · Users and groups · App roles ·
-Exposed permissions · Owners
+| Kind | Sections |
+| --- | --- |
+| App registrations | Essentials · Authentication · Certificates & secrets · API permissions · App roles · Exposed API · Owners |
+| Enterprise apps | Essentials · Properties · Users and groups · App roles · Exposed permissions · Owners |
+| Users | Essentials · Organisation · **Groups** · Contact · On-premises |
+| Groups | Essentials · Membership · **Owners** · **Members** · Mail · On-premises |
+| Devices | Essentials · Platform · Compliance & management · Activity · Registered owners · Groups |
 
-*Users and groups* lists the actual `appRoleAssignedTo` assignments with the
-role each grants, falling back to *Default Access* the way the portal does.
+*Users → Groups* is the direct `memberOf`, not the transitive closure, which
+is unhelpfully long on a well-nested tenant. *Enterprise apps → Users and
+groups* lists real `appRoleAssignedTo` assignments with the role each grants.
 
-**Users** — Essentials · Organisation · **Groups** · Contact · On-premises
+### API permissions
 
-*Groups* lists the groups and directory roles the user was actually added to
-(direct `memberOf`, not the transitive closure, which is unhelpfully long on a
-well-nested tenant).
+![API permissions, resolved](docs/images/api-permissions.png)
 
-**Groups** — Essentials · Membership · **Owners** · **Members** · Mail ·
-On-premises
+GUIDs are resolved by looking up each referenced API's service principal, so
+you read `User.Read.All` rather than `Scope e1fe6dd8-…`. Delegated and
+application permissions differ in consent and in blast radius, so the type
+gets a column, and consent status comes from the app's own service principal —
+`-` rather than a guess when it cannot be read.
 
-**Devices** — Essentials · Platform · Compliance & management · Activity ·
-Registered owners · Groups
+Near-expiry credentials and implicit-grant issuance are flagged amber, with
+the reason in the value: the implicit flow puts tokens in the URL fragment and
+cannot be bound with PKCE.
 
-Label columns size themselves to the longest label present rather than
-wrapping it, and on a wide terminal the sections spread across two columns.
-Sections are never split across the boundary; the cut is chosen to minimise
-the taller column.
+### Following a link
 
-Anything Graph returned that no section claims still appears under *Other
-properties* — the grouped view never hides data the raw view would show.
-`R` toggles raw JSON.
+![A member opened in its own pane](docs/images/linked-object.png)
 
-The pane is split. The object's **own fields stay at the top**; everything
-that enumerates *other* objects — members, owners, groups, roles, API
-permissions, credentials — becomes a **tab strip below**. An unbounded member
-list has no business pushing an object's own fields off the screen.
+`enter` on a row in a membership list opens that object in a pane of its own,
+so a group's members and a user's groups are traversable rather than dead
+text. The trail along the bottom shows how far in you are, and `esc` unwinds
+it one object at a time.
 
-`←`/`→` switch tabs, `↑`/`↓` walk the active list, `pgup`/`pgdn` scroll the
-properties above.
+Which object a row stands for comes from Graph's `@odata.type` — the only
+signal there is, since a members collection is declared as `directoryObject`
+and the properties that would give a row away are not even selectable.
 
-### Adding and removing people
+### Adding and deleting
 
-`a` adds a member, `o` adds an owner — both in two steps. You type a name,
-sign-in name or email; entra-tui searches the directory and **only proceeds
-when exactly one object matches**. Two matches is refused with a "be more
-specific", because adding the wrong person is not a mistake worth risking on
-a guess.
+![A confirmation](docs/images/confirm.png)
 
-`d` removes the selected entry. Both confirmations name every party by
-**display name and object id** — display names are not unique in a directory,
-and confirming against the wrong "Ada Lovelace" is precisely what the dialog
-exists to prevent.
+`a` adds to the list in front — a member on one tab, an owner on the next — in
+two steps: you type a name, sign-in name or email, and it **only proceeds when
+exactly one object matches**. Two is refused with "be more specific". `d`
+deletes the selected row from that same list.
 
-Only `y` proceeds. Every other key, `enter` included, cancels: a confirmation
-that commits on `enter` is one held-down key away from a change nobody meant
-to make. After a change the object is re-read from Graph, so the pane shows
-what the directory holds rather than what was asked for.
+Both confirmations name every party by **display name and object id**: display
+names are not unique in a directory, and confirming against the wrong "Ada
+Lovelace" is precisely what the dialog prevents. Only `y` proceeds — every
+other key, `enter` included, cancels, since a dialog that commits on `enter`
+is one held-down key from a change nobody meant. Afterwards the object is
+re-read, so the pane shows what the directory holds.
+
+entra-tui creates, deletes and renames nothing else.
 
 ### Jumping between the two halves of an app
 
-An Entra application is two objects: the **app registration** (`/applications`)
-and the **enterprise app** (`/servicePrincipals`). Press **`x`** in a detail
-view to jump to the other one. The pairing is resolved while the detail loads,
-so the key hint names where it will take you, and the jump is instant.
+An Entra application is two objects: the **app registration**
+(`/applications`) and the **enterprise app** (`/servicePrincipals`). `x` jumps
+between them, and the pairing is resolved while the detail loads, so the key
+hint names where it will take you. Many enterprise apps — every
+Microsoft-published one — have no app registration in your tenant; entra-tui
+says so rather than failing.
 
-Many enterprise apps — every Microsoft-published one — have no app
-registration in your tenant. entra-tui says so rather than failing.
+## Right-to-left text
+
+![Hebrew names in the table](docs/images/right-to-left.png)
+
+Most terminals do not implement the bidirectional algorithm, so a Hebrew or
+Arabic name arrives in logical order and reads backwards. `internal/bidi` is a
+simplified UAX #9 pass: neutrals resolve from context, right-to-left runs
+reverse, paired brackets mirror, and embedded numbers keep their reading order
+(`15`, not `51`).
+
+Cells stay **left-aligned** like any other — reordering is what makes the text
+readable, and right-alignment only cost a ragged left edge in a dense table.
+**The underlying data is never modified**, only what is drawn. Search terms
+get the same treatment, in the prompt and in the slots.
 
 ## Untrusted text
 
 A display name is whatever somebody typed into it, and in most tenants any
 member can create an object and name it. entra-tui treats every string from
-Graph as untrusted before drawing it:
+Graph as untrusted:
 
 - Characters a terminal **acts on** rather than draws are removed — C0 and C1
-  controls, `DEL`, and the bidirectional overrides and isolates. Without this,
-  a name could clear the screen, move the cursor, repaint a confirmation
-  dialog into a decoy, or emit an OSC 52 sequence to write your clipboard.
-- Text is cut by **display width**, not character count, so a name of
-  double-width glyphs cannot overflow its column and push the frame apart.
-- The **raw view** (`R`) stays faithful: it escapes those characters as
-  `\uXXXX` rather than dropping them, so nothing is hidden from you.
+  controls, `DEL`, and the bidirectional overrides. Without this a name could
+  clear the screen, repaint a confirmation dialog into a decoy, or emit an
+  OSC 52 sequence to write your clipboard.
+- Text is cut by **display width**, not character count, so double-width
+  glyphs cannot overflow a column and push the frame apart.
+- The **raw view** stays faithful, escaping those characters as `\uXXXX`
+  rather than dropping them, so nothing is hidden from you.
 
 See [SECURITY.md](SECURITY.md) for the rest of the security model.
-
-## Right-to-left text
-
-Hebrew (and Arabic) display names are reordered so they read correctly in a
-terminal that has no idea what bidi is — which is almost all of them. They
-stay **left-aligned** like every other cell: reordering is what makes the text
-readable, and a ragged left edge costs more in a dense table than
-right-alignment is worth.
-
-This is a deliberate simplification of [UAX #9](https://unicode.org/reports/tr9/):
-neutral characters resolve from surrounding context, right-to-left runs are
-reversed, paired brackets are mirrored, and embedded numbers keep their
-reading order (`15`, not `51`). Explicit embedding controls are not
-implemented. **The underlying data is never modified** — only what is drawn.
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
 | `↑`/`k`, `↓`/`j` | Move cursor, or walk the list tab in front |
-| `pgup` / `pgdn` | Page the table, or the list tab in front |
-| `g` / `G` | Top / bottom of the table, or of the list tab in front |
-| `enter` | Describe the selected object, in a table or in a list tab |
+| `pgup` / `pgdn`, `g` / `G` | Page, top / bottom of the list in front |
+| `enter` | Describe the selected object, in a table or a list tab |
 | `/` | Search the directory |
 | `0`–`9` | Replay a search slot (in a view) |
 | `1`–`5` | Open a view (on the dashboard) |
 | `←` / `→` | Switch detail tabs; move between dashboard tiles |
-| `:` | Command prompt (`:users`, `:groups`, `:appregs`, `:entapps`, `:dash`, `:q`) — type a prefix, `↑`/`↓` pick from what still matches |
-| `esc` | Back one layer: out of a linked object, then out of the pane, then to the dashboard |
+| `:` | Command prompt — type a prefix, `↑`/`↓` pick from what matches |
+| `esc` | Back one layer: linked object, then pane, then home |
 | `~` | Dashboard, from anywhere |
 | `x` | App registration ⇄ enterprise app |
 | `R` | Raw JSON (detail view) |
 | `r` | Refresh from Graph |
 | `c` (or `y`) | Copy object id (OSC 52, works over SSH) |
-| `a` | Add to the list tab in front — a member on one tab, an owner on the next |
-| `d` | Delete the selected row from the list in front |
+| `a` | Add to the list tab in front |
+| `d` | Delete the selected row from it |
 | `?` | Help |
 | `q` | Quit |
 
-## When Graph rejects a property
+## Signing in
 
-Which properties exist varies with tenant configuration and with the
-collection queried — `servicePrincipal`'s `publisherName` is one that some
-tenants refuse outright, failing the whole request rather than ignoring the
-field.
+entra-tui only ever acts as **you** — a delegated token, never an app-only
+one. No client-secret mode, by design, and **no token cache on disk**.
 
-Rather than shipping a lowest-common-denominator query, entra-tui sends the
-richest one, reads the rejected property out of the error, drops it and
-retries. The property is remembered, so the cost is one extra round trip per
-property per session, and the column simply comes back empty instead of the
-view failing.
+| Method | What happens |
+| --- | --- |
+| **Azure CLI** (default) | Borrows the Graph token from an existing `az login` session. No prompt. |
+| **Browser** (`-auth browser`) | OAuth 2.0 authorization code + PKCE, loopback redirect. MFA and Conditional Access behave as on the web. |
 
-## Paging
+### Which app registration?
 
-entra-tui requests 100 objects per page (`-page-size`) and fetches the next
-page automatically as you approach the bottom, so scrolling is the whole
-interface: there is no key to page, and no way to pull an entire tenant at
-once. The frame reports `more below — scroll to load` until everything is in.
+By default entra-tui authenticates as **Microsoft Graph Command Line Tools**
+(`14d82eec-204b-4c2f-b7e8-296a70dab67e`), a first-party public client that
+already has the loopback redirect URIs an interactive flow needs — zero setup
+for most tenants. If yours blocks it, register your own **public client** (no
+secret) with `http://localhost` under *Mobile and desktop applications*:
+
+```sh
+az ad app create --display-name entra-tui \
+  --sign-in-audience AzureADMyOrg \
+  --public-client-redirect-uris http://localhost
+
+export ENTRA_TUI_CLIENT_ID=<the appId you just created>
+export ENTRA_TUI_TENANT_ID=<your tenant id or domain>
+```
+
+### Permissions
+
+| Scope | Covers |
+| --- | --- |
+| `User.Read.All` | Users |
+| `Device.Read.All` | Devices |
+| `Group.ReadWrite.All` | Groups and their owners |
+| `GroupMember.ReadWrite.All` | A user's groups, a group's members |
+| `Application.ReadWrite.All` | App registrations, enterprise apps, owners, role assignments |
+
+A `ReadWrite` scope covers its `Read` counterpart, so asking for both would
+only lengthen the consent prompt. entra-tui deliberately does **not** ask for
+`Directory.Read.All`.
+
+All of these need **admin consent** — a property of the Graph permission
+model, not of this tool: no delegated scope enumerates a directory without it.
+A `403` in the status bar means exactly that. Sections degrade individually —
+if you cannot read owners, the Owners section says so instead of the view
+failing.
+
+Narrow the token further if you like:
+
+```sh
+entra-tui -scopes User.Read.All,Group.Read.All
+```
 
 ## Configuration
 
-Every flag has an environment variable; flags win.
-
 | Flag | Environment | Default |
 | --- | --- | --- |
-| `-auth` | `ENTRA_TUI_AUTH` | `auto` (preselects a login option) |
+| `-auth` | `ENTRA_TUI_AUTH` | `auto` |
 | `-client-id` | `ENTRA_TUI_CLIENT_ID` | Microsoft Graph Command Line Tools |
 | `-tenant` | `ENTRA_TUI_TENANT_ID` | `organizations` |
-| `-scopes` | `ENTRA_TUI_SCOPES` | the three read scopes above |
+| `-scopes` | `ENTRA_TUI_SCOPES` | the scopes above |
 | `-page-size` | `ENTRA_TUI_PAGE_SIZE` | `100` |
 | `-graph-url` | `ENTRA_TUI_GRAPH_URL` | `https://graph.microsoft.com/v1.0` |
-| `-view` | — | `users` (preselects a dashboard tile) |
+| `-view` | — | `users` |
 | `-demo` | — | off — runs against a generated directory |
-| `-nodelay` | — | off — opens an object's pane before it has loaded |
+| `-nodelay` | — | off — opens a pane before it has loaded |
 | `-version` | — | print the build stamp and exit |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).
+
+A pane waits for its object by default, so it is drawn once rather than
+opening on the row's few columns and replacing every value a moment later.
+
+## Paging
+
+Pages load as you scroll: reaching the last loaded row fetches the next. There
+is no key that pulls a whole tenant, deliberately — the frame's bottom edge
+says when more is waiting.
+
+## When Graph rejects a property
+
+Which properties exist varies with tenant configuration, and Graph fails the *whole
+request* rather than ignore a field it does not know:
+
+```
+Request_UnsupportedQuery: Property 'publisherName' does not exist
+```
+
+Rather than shipping a lowest common denominator, entra-tui sends the richest
+query, reads the rejected property out of the error, drops it and retries —
+remembering it, so it costs one round trip per property per session and the
+column comes back empty instead of the view failing.
 
 ## Development
 
@@ -423,7 +339,7 @@ gofmt -l .
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
 
-Layout:
+CI runs all four on every push, plus a five-platform cross-compile.
 
 ```
 cmd/entra-tui/       entry point: parse config, start the TUI
@@ -432,53 +348,39 @@ internal/bidi/       right-to-left reordering for non-bidi terminals
 internal/config/     flag + environment resolution
 internal/demo/       generated directory and an in-process Graph stand-in
 internal/graph/      paged Graph client, resources, detail sections
-internal/text/       what every string from outside goes through before it
-                     reaches a terminal
+internal/text/       what every string from outside passes through
 internal/ui/         Bubble Tea model, screens, dialogs, frame and table layout
 ```
 
-CI runs all four on every push, `govulncheck` included, so a newly disclosed
-advisory that this code actually reaches fails the build rather than waiting
-for somebody to look.
-
 ### Screen captures
 
-`docs/screens/*.txt` are rendered from the demo directory by a test, not
-taken by hand. Regenerate them after a layout change:
+`docs/screens/*.txt` are rendered from the demo directory by a test, and CI
+fails if they are stale, so a layout change shows up as a readable diff:
 
 ```sh
 go test ./internal/ui -run ScreenCaptures -update
 ```
 
-CI fails if they are stale, so a change to the layout shows up as a readable
-diff in review rather than as nothing at all.
+The PNGs above are drawn from the same directory, through a pseudo-terminal.
 
 ### The demo stand-in enforces `$select`
 
 `internal/demo` refuses a projection naming a property its collection does not
 declare, exactly as Graph does. That is deliberate: a fake that quietly
-ignores `$select` let a bad projection on `memberOf` — a `directoryObject`
-collection asked for a group-only property — reach a real tenant, where it
-failed the whole request. The stand-in catches that class of bug locally now.
+ignored `$select` let a bad projection on `memberOf` reach a real tenant,
+where it failed the whole request.
 
 ### Releases
 
-Tagging `v*` runs [GoReleaser](https://goreleaser.com), which builds Linux,
-macOS and Windows binaries for amd64 and arm64, and publishes them with
-checksums. The tests run first: a release that does not pass them is worse
-than no release.
-
-The Graph client keeps objects as loosely typed maps rather than generated
-structs, which is why the detail pane can show every property Graph returns
-without a schema having to know about it first.
+Tagging `v*` runs [GoReleaser](https://goreleaser.com): Linux, macOS and
+Windows binaries for amd64 and arm64, published with checksums. Tests run
+first.
 
 ## Not implemented (yet)
 
-- Device-code sign-in for headless sessions with no browser
-- A persistent token cache
-- Any write beyond membership and ownership: nothing creates, deletes or
-  renames a directory object
+Directory roles and administrative units, conditional access policies, sign-in
+and audit logs, creating or deleting objects.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
