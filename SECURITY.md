@@ -26,9 +26,22 @@ sovereign-cloud endpoint given by `-graph-url`).
 
 **Access.** Everything entra-tui can see or change, you could already see or
 change. It requests the narrowest delegated scopes its views need, and never
-`Directory.Read.All` — see [Permissions](README.md#permissions). Consent is
-the tenant's decision, not the tool's: without it, requests come back `403`
-and the affected section says so.
+`Directory.Read.All`:
+
+| Scope | Covers |
+| --- | --- |
+| `User.Read.All` | Users |
+| `Device.Read.All` | Devices |
+| `Group.ReadWrite.All` | Groups and their owners |
+| `GroupMember.ReadWrite.All` | A user's groups, a group's members |
+| `Application.ReadWrite.All` | App registrations, enterprise apps, owners, role assignments |
+
+A `ReadWrite` scope covers its `Read` counterpart, so asking for both only
+lengthens the consent prompt. Narrow the token further with `-scopes` if you
+like. All of these need admin consent — a property of the Graph permission
+model, not of this tool. Consent is the tenant's decision: without it,
+requests come back `403` and the affected section says so rather than the
+whole view failing.
 
 **Writes.** entra-tui adds and removes group members and owners. It creates,
 deletes and renames nothing. Every change is confirmed first, naming both
