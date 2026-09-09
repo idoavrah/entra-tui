@@ -20,30 +20,23 @@ func (stubProvider) Identity() auth.Identity {
 	return auth.Identity{Account: "ada@contoso.com", TenantID: "tid", Method: auth.MethodBrowser}
 }
 
-// newLoginModel returns a sized model sitting on the login screen, mid
-// unattended Azure CLI attempt.
+// newLoginModel returns a sized model mid sign-in, which is how the app
+// starts.
 func newLoginModel(t *testing.T) Model {
 	t.Helper()
 	res, ok := graph.Lookup("users")
 	if !ok {
 		t.Fatal("users resource missing")
 	}
+	// CacheDir keeps every test off the developer's real quick-search cache.
 	m := New(context.Background(), Options{
 		Auth:     auth.Options{TenantID: "organizations"},
 		GraphURL: "http://127.0.0.1:1/v1.0",
 		PageSize: 100,
 		Resource: res,
+		CacheDir: t.TempDir(),
 	})
 	return send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
-}
-
-// pickerModel returns a login screen after the unattended Azure CLI attempt
-// has failed, which is when the method picker is shown.
-func pickerModel(t *testing.T) Model {
-	t.Helper()
-	m := newLoginModel(t)
-	return send(t, m, authDoneMsg{attempt: m.authAttempt,
-		err: fmt.Errorf("%w: not signed in to the Azure CLI", auth.ErrNoAzureCLI)})
 }
 
 // signedIn advances a model past the login screen without touching a network.
@@ -112,148 +105,109 @@ func loadUsers(t *testing.T, m Model, names ...string) Model {
 	return send(t, m, pageMsg{gen: m.gen, page: &graph.Page{Items: items, TotalCount: int64(len(items))}})
 }
 
-// ------------------------------------------------------------ login screen
+// --------------------------------------------------------------- sign-in
 
-func TestStartsOnLoginAndQueriesNothing(t *testing.T) {
+func TestStartsSigningInWithNoScreenToFlash(t *testing.T) {
+	// There is nothing to ask, so there is no login screen: the dashboard is
+	// the first and only thing drawn.
 	m := newLoginModel(t)
 
-	if m.screen != screenLogin {
-		t.Fatalf("screen = %v, want screenLogin", m.screen)
+	if m.screen != screenDashboard {
+		t.Fatalf("screen = %v, want the dashboard", m.screen)
 	}
-	if m.client != nil {
-		t.Error("a Graph client exists before sign-in")
+	if !m.authing || m.authAttempt == 0 {
+		t.Errorf("authing=%v attempt=%d, want a numbered attempt in flight", m.authing, m.authAttempt)
 	}
-	if m.coll != nil {
-		t.Error("a collection exists before sign-in; nothing should be queried")
+	if m.client != nil || m.coll != nil {
+		t.Error("something was queried before sign-in completed")
 	}
-	if !strings.Contains(m.View(), "SIGN IN") {
-		t.Error("login screen does not render its title")
-	}
-}
-
-func TestLoginOffersBothMethods(t *testing.T) {
-	view := pickerModel(t).View()
-	for _, want := range []string{"browser", "Azure CLI"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("login screen missing %q", want)
-		}
+	if !strings.Contains(m.View(), "signing in") {
+		t.Error("the dashboard does not report the sign-in in progress")
 	}
 }
 
-func TestLoginCursorMoves(t *testing.T) {
-	m := pickerModel(t)
-	m.authCursor = authOptionBrowser
-
-	m = send(t, m, press("down"))
-	if m.authCursor != authOptionAzureCLI {
-		t.Errorf("cursor = %d, want the Azure CLI option", m.authCursor)
-	}
-	m = send(t, m, press("up"))
-	m = send(t, m, press("up"))
-	if m.authCursor != authOptionBrowser {
-		t.Errorf("cursor = %d, want it clamped at the first option", m.authCursor)
-	}
-}
-
-func TestSuccessfulSignInLandsOnDashboard(t *testing.T) {
+func TestSignInLandsOnAPopulatedDashboard(t *testing.T) {
 	m := signedIn(t, newLoginModel(t))
 
 	if m.screen != screenDashboard {
-		t.Fatalf("screen = %v, want screenDashboard", m.screen)
+		t.Fatalf("screen = %v, want the dashboard", m.screen)
 	}
 	if m.client == nil {
 		t.Error("no Graph client after sign-in")
 	}
 	if m.coll != nil {
-		t.Error("a view was loaded automatically; the dashboard should wait for a choice")
+		t.Error("a view was loaded automatically; the dashboard waits for a choice")
 	}
 	if m.identity.Account != "ada@contoso.com" {
 		t.Errorf("identity = %q, want the provider's account", m.identity.Account)
 	}
 }
 
+func TestSignInFailureIsShownWithARetry(t *testing.T) {
+	m := newLoginModel(t)
+	m = send(t, m, authDoneMsg{attempt: m.authAttempt,
+		err: fmt.Errorf("%w: not signed in to the Azure CLI", auth.ErrNoAzureCLI)})
+
+	if m.authing {
+		t.Error("the attempt is still marked in flight")
+	}
+	if m.err == nil {
+		t.Fatal("the failure was swallowed; there is no picker to fall back to any more")
+	}
+	if !strings.Contains(m.View(), "Azure CLI") {
+		t.Error("the dashboard does not explain the failure")
+	}
+
+	// r is the only thing that can help before a client exists.
+	retried := send(t, m, press("r"))
+	if !retried.authing {
+		t.Error("r did not start another sign-in attempt")
+	}
+	if retried.authAttempt == m.authAttempt {
+		t.Error("the retry reused the abandoned attempt number")
+	}
+}
+
 func TestStaleSignInResultIsIgnored(t *testing.T) {
-	// Cancelling an attempt and starting another must not let the abandoned
-	// one land.
 	m := newLoginModel(t)
 	m.authAttempt = 5
 	m = send(t, m, authDoneMsg{attempt: 2, provider: stubProvider{}})
 
-	if m.screen != screenLogin {
+	if m.client != nil {
 		t.Error("an abandoned sign-in attempt was accepted")
 	}
 }
 
-func TestSignInErrorStaysOnLogin(t *testing.T) {
-	m := pickerModel(t)
-	m.authAttempt++
-	m = send(t, m, authDoneMsg{attempt: m.authAttempt, err: context.DeadlineExceeded})
-
-	if m.screen != screenLogin {
-		t.Errorf("screen = %v, want to stay on login after a failure", m.screen)
-	}
-	if m.err == nil {
-		t.Error("the sign-in error was not recorded")
-	}
-}
-
-func TestStartupTriesTheAzureCLIWithoutAsking(t *testing.T) {
-	// An existing az session is enough to get going; making the user pick it
-	// is asking them to confirm something they already decided.
+func TestUnattendedAttemptIsNumberedBeforeInit(t *testing.T) {
+	// Init takes the model by value, so it cannot number the attempt itself:
+	// the increment would be discarded and the reply dropped as stale. This
+	// is the bug that left the old login screen spinning forever.
 	m := newLoginModel(t)
-	if !m.autoSignIn || !m.authing {
-		t.Fatalf("autoSignIn=%v authing=%v, want an unattended attempt in flight",
-			m.autoSignIn, m.authing)
-	}
-	if !strings.Contains(m.View(), "signing in") {
-		t.Error("the login screen does not show the attempt in progress")
+	m.Init()
+
+	done := send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
+	if done.client == nil {
+		t.Error("the sign-in reply was dropped as stale")
 	}
 }
 
-func TestUnattendedFailureFallsBackToThePickerQuietly(t *testing.T) {
-	// "Not signed in to az" is the ordinary reason the attempt fails, and
-	// falling back is the whole point -- so it is not reported as an error.
-	m := pickerModel(t)
-
-	if m.authing || m.autoSignIn {
-		t.Error("the attempt is still marked in flight")
-	}
-	if m.err != nil {
-		t.Errorf("err = %v, want a missing az session handled silently", m.err)
-	}
-	if !strings.Contains(m.View(), "Sign in with your browser") {
-		t.Error("the method picker was not shown")
-	}
-}
-
-func TestUnattendedRealFailureIsReported(t *testing.T) {
-	// Anything other than a missing session is worth showing.
-	m := newLoginModel(t)
-	m = send(t, m, authDoneMsg{attempt: m.authAttempt, err: context.DeadlineExceeded})
-
-	if m.err == nil {
-		t.Error("a genuine sign-in failure was swallowed")
-	}
-}
-
-func TestBrowserMethodSkipsTheUnattendedAttempt(t *testing.T) {
+func TestBrowserMethodIsStillReachableByFlag(t *testing.T) {
+	// The interface no longer offers it, but -auth browser still selects it.
 	res, _ := graph.Lookup("users")
 	m := New(context.Background(), Options{
 		Auth:     auth.Options{TenantID: "organizations", Method: auth.MethodBrowser},
-		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res,
+		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res, CacheDir: t.TempDir(),
 	})
-	if m.autoSignIn || m.authing {
-		t.Error("-auth browser should go straight to the picker")
+	if got := m.signInMethod(); got != auth.MethodBrowser {
+		t.Errorf("signInMethod = %q, want browser", got)
 	}
-}
 
-func TestSignInURLIsShownWhenBrowserDoesNotOpen(t *testing.T) {
-	m := newLoginModel(t)
-	m.authing = true
-	m = send(t, m, authURLMsg{url: "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize?x=1"})
-
-	if !strings.Contains(m.View(), "login.microsoftonline.com") {
-		t.Error("the sign-in URL is not offered for manual use")
+	def := New(context.Background(), Options{
+		Auth:     auth.Options{TenantID: "organizations"},
+		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res, CacheDir: t.TempDir(),
+	})
+	if got := def.signInMethod(); got != auth.MethodAzureCLI {
+		t.Errorf("default signInMethod = %q, want azurecli", got)
 	}
 }
 
@@ -766,7 +720,7 @@ func TestViewSurvivesEverySizeAndScreen(t *testing.T) {
 		{Width: 20, Height: 12}, {Width: 5, Height: 10}, {Width: 200, Height: 60},
 	} {
 		m := send(t, base, size)
-		for _, s := range []screen{screenLogin, screenDashboard, screenBrowse, screenDetail, screenHelp} {
+		for _, s := range []screen{screenDashboard, screenBrowse, screenDetail, screenHelp} {
 			m.screen = s
 			if got := m.View(); got == "" {
 				t.Errorf("View at %dx%d screen %v returned empty", size.Width, size.Height, s)
@@ -1019,7 +973,7 @@ func TestEveryRenderedLineFitsTheTerminal(t *testing.T) {
 		{Width: 80, Height: 24}, {Width: 120, Height: 40}, {Width: 200, Height: 60},
 	} {
 		m := send(t, base, size)
-		for _, s := range []screen{screenLogin, screenDashboard, screenBrowse, screenDetail, screenHelp} {
+		for _, s := range []screen{screenDashboard, screenBrowse, screenDetail, screenHelp} {
 			m.screen = s
 			for i, line := range strings.Split(m.View(), "\n") {
 				if w := lipgloss.Width(line); w > size.Width {
@@ -1057,22 +1011,5 @@ func TestUserTableShowsTheRequestedColumns(t *testing.T) {
 		if strings.Contains(view, unwanted) {
 			t.Errorf("users table still shows the %s column", unwanted)
 		}
-	}
-}
-
-func TestUnattendedAttemptIsNumberedBeforeInit(t *testing.T) {
-	// Init takes the model by value, so it cannot number the attempt itself:
-	// the increment would be discarded and the reply dropped as stale. This
-	// is the bug that left the login screen spinning forever.
-	m := newLoginModel(t)
-	if m.authAttempt == 0 {
-		t.Fatal("the unattended attempt has no number, so its result will be ignored")
-	}
-
-	// The number New assigned must be the one the reply is accepted under.
-	m.Init()
-	done := send(t, m, authDoneMsg{attempt: m.authAttempt, provider: stubProvider{}})
-	if done.screen != screenDashboard {
-		t.Errorf("screen = %v, want the sign-in to have been accepted", done.screen)
 	}
 }

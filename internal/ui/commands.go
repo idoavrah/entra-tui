@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -63,6 +64,21 @@ type pairMsg struct {
 	counterpart *graph.Counterpart
 	missing     string
 	err         error
+}
+
+// principalsMsg carries the objects a membership lookup found.
+type principalsMsg struct {
+	gen   int
+	term  string
+	items []graph.Item
+	err   error
+}
+
+// writeDoneMsg reports the outcome of a membership or ownership change.
+type writeDoneMsg struct {
+	gen     int
+	summary string
+	err     error
 }
 
 // countMsg carries one view's directory-wide object total.
@@ -410,6 +426,63 @@ func missingPairMessage(kind graph.Kind) string {
 		return "no app registration in this tenant — the app is published by another organisation"
 	}
 	return "no enterprise application — this registration has no service principal here"
+}
+
+// ------------------------------------------------------------------ writes
+
+// writeTimeout bounds a single mutating request. It is not retried: a POST
+// that may or may not have been applied should be reported, not repeated.
+const writeTimeout = 30 * time.Second
+
+// findPrincipal looks up who the user means before anything is written.
+func (m *Model) findPrincipal(rel graph.Relationship, term string) tea.Cmd {
+	gen := m.gen
+	client := m.client
+	ctx := m.ctx
+
+	return func() tea.Msg {
+		reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+		items, err := client.FindPrincipals(reqCtx, rel, term)
+		return principalsMsg{gen: gen, term: term, items: items, err: err}
+	}
+}
+
+// applyMembershipChange performs the confirmed add or removal.
+func (m *Model) applyMembershipChange() tea.Cmd {
+	gen := m.gen
+	client := m.client
+	ctx := m.ctx
+	path := m.coll.res.Path
+	objectID := m.detailID
+	rel := m.modalRel
+	action := m.modalAction
+
+	// The summary names the object the same way the confirmation did, id
+	// included, so the record of what happened is as unambiguous as the
+	// question that authorised it.
+	principalID, who := m.modalEntry.id, m.modalEntry.name
+	if action == actionAdd {
+		principalID = m.modalTarget.ID()
+		who = m.modalTarget.String("displayName")
+	}
+	who = identify(who, principalID)
+
+	return func() tea.Msg {
+		reqCtx, cancel := context.WithTimeout(ctx, writeTimeout)
+		defer cancel()
+
+		var err error
+		var summary string
+		if action == actionAdd {
+			err = client.AddRef(reqCtx, path, objectID, rel, principalID)
+			summary = fmt.Sprintf("added %s as %s", who, rel.Label())
+		} else {
+			err = client.RemoveRef(reqCtx, path, objectID, rel, principalID)
+			summary = fmt.Sprintf("removed %s as %s", who, rel.Label())
+		}
+		return writeDoneMsg{gen: gen, summary: summary, err: err}
+	}
 }
 
 // ------------------------------------------------------------------ chrome

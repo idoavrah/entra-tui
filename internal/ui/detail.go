@@ -40,21 +40,32 @@ func (m Model) renderDetail() string {
 		styleDim.Render(" · ") + styleContextVal.Render(bidi.Display(name)) +
 		styleDim.Render(" · "+mode)
 
-	hintPairs := [][2]string{
-		{"↑/↓", "scroll"},
-		{"R", "raw json"},
-	}
+	// The footer carries only what this screen does; the keys that work
+	// everywhere live in the header.
+	hintPairs := [][2]string{{"↑/↓", "select"}, {"pgup/pgdn", "scroll"}, {"R", "raw json"}}
 	if m.detail.Kind == graph.KindAppRegistrations || m.detail.Kind == graph.KindEnterpriseApps {
 		hintPairs = append(hintPairs, [2]string{"x", m.pairHint()})
 	}
-	hintPairs = append(hintPairs,
-		[2]string{"c", "copy id"},
-		[2]string{"esc", "back"},
-		[2]string{"~", "dashboard"},
-	)
+	if m.opts.Write {
+		if m.detailHasRelationship(graph.RelMembers) {
+			hintPairs = append(hintPairs, [2]string{"a", "add member"})
+		}
+		if m.detailHasRelationship(m.ownerRelationship()) {
+			hintPairs = append(hintPairs, [2]string{"o", "add owner"})
+		}
+		if len(m.detailEntries) > 0 {
+			hintPairs = append(hintPairs, [2]string{"d", "remove selected"})
+		}
+	}
+	hintPairs = append(hintPairs, [2]string{"c", "copy id"}, [2]string{"esc", "back"})
 
 	body := strings.Split(m.detailVP.View(), "\n")
-	return m.chrome(caption, m.detailFooterCaption(), body, hintBar(m.width, hintPairs...))
+	footer := m.detailFooterCaption()
+	if m.modal != modalNone {
+		body = m.renderModal(m.contentHeight())
+		footer = ""
+	}
+	return m.chrome(caption, footer, body, hintBar(m.width, hintPairs...))
 }
 
 // detailFooterCaption shows scroll position when the object does not fit.
@@ -80,14 +91,28 @@ func (m Model) pairHint() string {
 	return "app registration"
 }
 
-// renderDetailBody formats the selected object for the viewport, spreading
-// sections across two columns when the frame is wide enough to hold them.
-func (m Model) renderDetailBody() string {
+// detailEntry is one selectable object in the detail pane -- a member or an
+// owner -- along with the line it was rendered on, so the viewport can be
+// scrolled to keep the selection in sight.
+type detailEntry struct {
+	rel  graph.Relationship
+	id   string
+	name string
+	// detail is the entry's secondary text -- the sign-in name or object
+	// kind -- carried so a confirmation can identify it without guessing.
+	detail string
+	line   int
+}
+
+// buildDetailBody formats the object for the viewport and reports the
+// selectable entries it drew, spreading sections across two columns when the
+// frame is wide enough to hold them.
+func (m Model) buildDetailBody() (string, []detailEntry) {
 	if m.detail.Object == nil {
-		return styleDim.Render("nothing selected")
+		return styleDim.Render("nothing selected"), nil
 	}
 	if m.detailRaw {
-		return m.detail.Object.JSON()
+		return m.detail.Object.JSON(), nil
 	}
 
 	inner := boxInnerWidth(m.width)
@@ -99,19 +124,55 @@ func (m Model) renderDetailBody() string {
 	labelWidth := detailLabelWidth(m.detailSections, columnWidth)
 
 	blocks := make([][]string, 0, len(m.detailSections))
+	blockEntries := make([][]detailEntry, 0, len(m.detailSections))
 	for _, section := range m.detailSections {
-		blocks = append(blocks, renderSection(section, labelWidth, columnWidth))
+		lines, entries := renderSection(section, labelWidth, columnWidth,
+			countEntries(blockEntries), m.detailCursor)
+		blocks = append(blocks, lines)
+		blockEntries = append(blockEntries, entries)
 	}
 
 	var out string
+	var entries []detailEntry
 	if columns == 1 {
 		out = strings.Join(flatten(blocks), "\n")
+		entries = offsetEntries(blockEntries, blocks, 0, len(blocks))
 	} else {
+		split := balancedSplit(blocks)
 		out = twoColumnLayout(blocks, columnWidth)
+		// Both columns are drawn side by side, so each starts its own line
+		// numbering from the top of the pane.
+		entries = append(offsetEntries(blockEntries, blocks, 0, split),
+			offsetEntries(blockEntries, blocks, split, len(blocks))...)
 	}
 
 	if m.detailLoading {
 		out += "\n" + styleDim.Render(m.spin.View()+" gathering related objects…")
+	}
+	return out, entries
+}
+
+// countEntries totals the entries collected so far, which is the index the
+// next one will take.
+func countEntries(blocks [][]detailEntry) int {
+	n := 0
+	for _, b := range blocks {
+		n += len(b)
+	}
+	return n
+}
+
+// offsetEntries shifts a run of blocks' entry line numbers by where those
+// blocks land in the rendered output.
+func offsetEntries(blockEntries [][]detailEntry, blocks [][]string, from, to int) []detailEntry {
+	var out []detailEntry
+	offset := 0
+	for i := from; i < to && i < len(blocks); i++ {
+		for _, e := range blockEntries[i] {
+			e.line += offset
+			out = append(out, e)
+		}
+		offset += len(blocks[i])
 	}
 	return out
 }
@@ -131,8 +192,13 @@ func detailLabelWidth(sections []graph.Section, columnWidth int) int {
 	return clamp(longest, detailLabelMin, upper)
 }
 
-// renderSection renders one titled group, returning its lines.
-func renderSection(s graph.Section, labelWidth, columnWidth int) []string {
+// renderSection renders one titled group, returning its lines and the
+// selectable entries within it.
+//
+// entryBase is the index the section's first selectable entry takes, and
+// selected is the entry currently under the cursor; a section with no
+// editable relationship contributes neither.
+func renderSection(s graph.Section, labelWidth, columnWidth, entryBase, selected int) ([]string, []detailEntry) {
 	valueWidth := max(10, columnWidth-labelWidth-detailIndent-detailGutter)
 
 	lines := []string{styleSectionTitle.Render("▌ " + strings.ToUpper(s.Title))}
@@ -141,10 +207,27 @@ func renderSection(s graph.Section, labelWidth, columnWidth int) []string {
 			lines = append(lines, spaces(detailIndent)+styleDim.Render(l))
 		}
 	}
+
+	var entries []detailEntry
 	for _, f := range s.Fields {
-		lines = append(lines, renderFieldLines(f, labelWidth, valueWidth)...)
+		selectable := s.Relationship != "" && f.ID != ""
+		index := entryBase + len(entries)
+
+		rendered := renderFieldLines(f, labelWidth, valueWidth)
+		if selectable && index == selected {
+			for i := range rendered {
+				rendered[i] = styleRowSelected.Render(padRight(rendered[i], columnWidth))
+			}
+		}
+		if selectable {
+			entries = append(entries, detailEntry{
+				rel: s.Relationship, id: f.ID, name: f.Label,
+				detail: f.Value, line: len(lines),
+			})
+		}
+		lines = append(lines, rendered...)
 	}
-	return append(lines, "")
+	return append(lines, ""), entries
 }
 
 // renderFieldLines renders one label/value pair. Multi-valued fields list one

@@ -17,6 +17,10 @@ type Field struct {
 	Values []string
 	// Warn marks a value that deserves attention, such as a lapsed credential.
 	Warn bool
+	// ID is the directory object this field stands for, when the field is a
+	// real object rather than a property. Only these can be selected and
+	// removed.
+	ID string
 }
 
 // Empty reports whether the field has nothing worth rendering.
@@ -31,6 +35,9 @@ type Section struct {
 	// Note explains an empty or partial section, typically a permission the
 	// signed-in user lacks.
 	Note string
+	// Relationship names the editable Graph collection this section lists.
+	// An empty relationship means the section is read-only.
+	Relationship Relationship
 }
 
 // Detail is everything the detail view knows about one object: the object
@@ -207,7 +214,7 @@ func groupsSection(d Detail) Section {
 
 // membersSection lists a group's direct members.
 func membersSection(d Detail) Section {
-	s := Section{Title: "Members"}
+	s := Section{Title: "Members", Relationship: RelMembers}
 	if d.MembersErr != nil {
 		s.Note = "Could not read members: " + shortError(d.MembersErr)
 		return s
@@ -220,6 +227,7 @@ func membersSection(d Detail) Section {
 		s.Fields = append(s.Fields, Field{
 			Label: orDash(firstNonEmpty(m.String("displayName"), m.String("userPrincipalName"), m.ID())),
 			Value: describeDirectoryObject(m),
+			ID:    m.ID(),
 		})
 	}
 	if d.MembersTruncated {
@@ -323,6 +331,9 @@ func deviceSections(d Detail) []Section {
 
 	owners := ownersSection(d)
 	owners.Title = "Registered owners"
+	// Graph keeps a device's owners under a different relationship name from
+	// everything else, and the write path needs the right one.
+	owners.Relationship = RelRegisteredOwners
 	if len(owners.Fields) == 0 && d.OwnersErr == nil {
 		owners.Note = "This device has no registered owner."
 	}
@@ -653,7 +664,7 @@ func appRoleNames(o Item) map[string]string {
 }
 
 func ownersSection(d Detail) Section {
-	s := Section{Title: "Owners"}
+	s := Section{Title: "Owners", Relationship: RelOwners}
 	if d.OwnersErr != nil {
 		s.Note = "Could not read owners: " + shortError(d.OwnersErr)
 		return s
@@ -666,7 +677,8 @@ func ownersSection(d Detail) Section {
 		name := firstNonEmpty(o.String("displayName"), o.String("userPrincipalName"), o.ID())
 		s.Fields = append(s.Fields, Field{
 			Label: name,
-			Value: firstNonEmpty(o.String("userPrincipalName"), o.String("@odata.type"), ""),
+			Value: firstNonEmpty(o.String("userPrincipalName"), objectKind(o), ""),
+			ID:    o.ID(),
 		})
 	}
 	return s

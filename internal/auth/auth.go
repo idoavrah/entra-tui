@@ -44,6 +44,24 @@ func DefaultScopes() []string {
 	}
 }
 
+// WriteScopes are the delegated scopes needed to change membership and
+// ownership. They are requested only when writes are explicitly enabled.
+//
+// Keeping them off by default is not timidity: these are admin-consent
+// permissions that let the holder alter who can access what, and quietly
+// widening every existing user's consent from "read the directory" to
+// "change the directory" on their next launch is not a change to make on
+// their behalf. Tenants that refuse them would break the read-only views
+// too.
+func WriteScopes() []string {
+	return []string{
+		GraphResource + "/GroupMember.ReadWrite.All",
+		GraphResource + "/Group.ReadWrite.All",
+		GraphResource + "/Application.ReadWrite.All",
+		GraphResource + "/Device.ReadWrite.All",
+	}
+}
+
 // Method identifies how a token was obtained.
 type Method string
 

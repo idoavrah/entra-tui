@@ -46,6 +46,11 @@ func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Command):
 		return m.openPrompt(modeCommand, "")
 	case key.Matches(msg, keys.Refresh):
+		// Before sign-in succeeds there is nothing to count; r retries the
+		// sign-in instead, which is the only thing that can help.
+		if m.client == nil {
+			return m.retryAuth()
+		}
 		return m, m.loadTotals()
 
 	// The tiles are a grid, so the cursor moves in two dimensions.
@@ -146,17 +151,33 @@ func (m Model) renderTile(res graph.Resource, index, width int) []string {
 
 	lines := []string{tileBorder(width, caption, border, boxTopLeft, boxTopRight)}
 
-	number := bigNumber(m.totalText(res.Kind))
 	numberStyle := accent
 	if _, failed := m.totalErrs[res.Kind]; failed {
 		numberStyle = styleDim
 	}
-	for _, l := range number {
-		lines = append(lines, tileRow(inner, " "+numberStyle.Render(l), border))
+	// The card reads as one centred column: caption, count, and what the
+	// count is of, each balanced against the same axis.
+	total := m.totalText(res.Kind)
+	numberWidth := bigNumberWidth(total)
+	for _, l := range bigNumber(total) {
+		lines = append(lines, tileRow(inner, centreIn(numberStyle.Render(l), numberWidth, inner), border))
 	}
-	lines = append(lines, tileRow(inner, " "+styleDim.Render(graph.Truncate(res.Description, inner-2)), border))
+
+	description := graph.Truncate(res.Description, inner-2)
+	lines = append(lines, tileRow(inner,
+		centreIn(styleDim.Render(description), lipgloss.Width(description), inner), border))
 	lines = append(lines, tileBorder(width, "", border, boxBottomLeft, boxBottomRight))
 	return lines
+}
+
+// centreIn pads styled content of a known printable width to sit centred in
+// a field. The width is passed in because measuring styled text at every
+// call site is what lets a stray escape sequence skew the alignment.
+func centreIn(content string, contentWidth, field int) string {
+	if contentWidth >= field {
+		return content
+	}
+	return spaces((field-contentWidth)/2) + content
 }
 
 // totalText is the count to display, or a placeholder while it is unknown.
@@ -171,14 +192,19 @@ func (m Model) totalText(kind graph.Kind) string {
 	return formatInt(int(total))
 }
 
-// tileBorder draws a tile's top or bottom edge in the given style.
+// tileBorder draws a tile's top or bottom edge in the given style, with the
+// caption centred on it.
 func tileBorder(width int, caption string, style lipgloss.Style, left, right string) string {
 	inner := max(1, width-2)
 	if lipgloss.Width(caption) == 0 || lipgloss.Width(caption)+2 > inner {
 		return style.Render(left + strings.Repeat(boxHorizontal, inner) + right)
 	}
-	return style.Render(left+boxHorizontal) + " " + caption + " " +
-		style.Render(strings.Repeat(boxHorizontal, inner-lipgloss.Width(caption)-3)+right)
+	captionWidth := lipgloss.Width(caption) + 2
+	leftRule := (inner - captionWidth) / 2
+	rightRule := inner - captionWidth - leftRule
+	return style.Render(left+strings.Repeat(boxHorizontal, leftRule)) +
+		" " + caption + " " +
+		style.Render(strings.Repeat(boxHorizontal, rightRule)+right)
 }
 
 // tileRow frames one line of a tile's body.

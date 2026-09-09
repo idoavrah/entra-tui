@@ -51,6 +51,7 @@ func run(args []string) error {
 		GraphURL: cfg.GraphURL,
 		PageSize: cfg.PageSize,
 		Resource: cfg.Resource,
+		Write:    cfg.Write,
 	})
 
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx))

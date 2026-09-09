@@ -33,6 +33,8 @@ const (
 	quickEntryWidth = 21
 	// quickBlockWidth is the whole two-column grid.
 	quickBlockWidth = quickEntryWidth*2 + 2
+	// shortcutBlockWidth holds the general key legend.
+	shortcutBlockWidth = 14
 	// headerBlockGap separates the header's three blocks.
 	headerBlockGap = 3
 	// contextBlockMaxWidth caps the left block so a long tenant id cannot
@@ -78,8 +80,6 @@ func (m Model) View() string {
 
 	var body string
 	switch m.screen {
-	case screenLogin:
-		body = m.renderLogin()
 	case screenDashboard:
 		body = m.renderDashboard()
 	case screenHelp:
@@ -122,53 +122,83 @@ func (m Model) chrome(caption, bottomCaption string, body []string, hints string
 // the right. Blocks are dropped from the right as the terminal narrows.
 func (m Model) renderHeader() string {
 	ctx := m.contextLines()
-	leftWidth := 0
+	contextWidth := 0
 	for _, l := range ctx {
-		leftWidth = max(leftWidth, lipgloss.Width(l))
+		contextWidth = max(contextWidth, lipgloss.Width(l))
 	}
-	leftWidth = min(leftWidth, contextBlockMaxWidth)
+	contextWidth = min(contextWidth, contextBlockMaxWidth)
 
-	showLogo := m.width >= logoMinTerminalWidth
-	logoSpace := 0
-	if showLogo {
-		logoSpace = logoWidth + headerBlockGap
+	// Blocks are placed from both edges inward and dropped as the terminal
+	// narrows: the wordmark first, then the quick searches, then the key
+	// legend. The context block always survives.
+	logoAt := -1
+	if m.width >= logoMinTerminalWidth {
+		logoAt = m.width - logoWidth
 	}
 
-	// The grid is a fixed size and sits hard against the wordmark, rather
-	// than stretching to fill whatever is left: a grid that grows with the
-	// terminal just spreads three short words across half a screen.
+	rightEdge := m.width
+	if logoAt >= 0 {
+		rightEdge = logoAt - headerBlockGap
+	}
+
 	quick := m.quickSearchBlock()
-	quickSpace := 0
-	if len(quick) > 0 && m.width-logoSpace-quickBlockWidth >= leftWidth+headerBlockGap {
-		quickSpace = quickBlockWidth + headerBlockGap
-	} else {
-		quick = nil
+	quickAt := -1
+	if len(quick) > 0 && rightEdge-quickBlockWidth >= contextWidth+headerBlockGap {
+		quickAt = rightEdge - quickBlockWidth
+	}
+
+	// The general keys sit next to the context block, k9s-style: they apply
+	// everywhere, so they belong with the session information rather than in
+	// the footer where the screen-specific keys live.
+	shortcutsEnd := rightEdge
+	if quickAt >= 0 {
+		shortcutsEnd = quickAt - headerBlockGap
+	}
+	shortcuts := generalShortcuts()
+	shortcutsAt := -1
+	if shortcutsEnd-shortcutBlockWidth >= contextWidth+headerBlockGap {
+		shortcutsAt = contextWidth + headerBlockGap
 	}
 
 	lines := make([]string, headerHeight)
 	for i := range headerHeight {
 		var b strings.Builder
-
-		left := ""
 		if i < len(ctx) {
-			left = ctx[i]
+			b.WriteString(ctx[i])
 		}
-		b.WriteString(left)
-
-		if quickSpace > 0 {
-			b.WriteString(spaces(m.width - logoSpace - quickSpace + headerBlockGap - lipgloss.Width(b.String())))
-			if i < len(quick) {
-				b.WriteString(quick[i])
-			}
+		if shortcutsAt >= 0 && i < len(shortcuts) {
+			b.WriteString(spaces(shortcutsAt - lipgloss.Width(b.String())))
+			b.WriteString(shortcuts[i])
 		}
-
-		if showLogo && i < logoHeight {
-			b.WriteString(spaces(max(1, m.width-lipgloss.Width(b.String())-logoWidth)))
+		if quickAt >= 0 && i < len(quick) {
+			b.WriteString(spaces(quickAt - lipgloss.Width(b.String())))
+			b.WriteString(quick[i])
+		}
+		if logoAt >= 0 && i < logoHeight {
+			b.WriteString(spaces(max(1, logoAt-lipgloss.Width(b.String()))))
 			b.WriteString(accentStyle("").Render(logo[i]))
 		}
 		lines[i] = strings.TrimRight(b.String(), " ")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// generalShortcuts is the key legend for what works on every screen.
+// Screen-specific keys stay in the footer.
+func generalShortcuts() []string {
+	pairs := [][2]string{
+		{":", "view"},
+		{"/", "search"},
+		{"~", "home"},
+		{"?", "help"},
+		{"q", "quit"},
+	}
+	out := make([]string, len(pairs))
+	for i, p := range pairs {
+		entry := styleHintKey.Render(p[0]) + styleHintDesc.Render(" "+p[1])
+		out[i] = entry + spaces(shortcutBlockWidth-lipgloss.Width(entry))
+	}
+	return out
 }
 
 // contextLines describe who is signed in and what is happening.
@@ -177,6 +207,8 @@ func (m Model) contextLines() []string {
 		return []string{
 			styleContextKey.Render("Tenant   ") + styleDim.Render(m.opts.Auth.TenantID),
 			styleContextKey.Render("Account  ") + styleDim.Render("not signed in"),
+			"",
+			styleContextKey.Render("Status   ") + m.statusIndicator(),
 		}
 	}
 	tenant := m.identity.TenantID
@@ -498,6 +530,20 @@ func (m Model) renderHelp() string {
 }
 
 // ----------------------------------------------------------------- helpers
+
+// itoa renders a small non-negative integer without pulling in strconv at
+// every call site.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var digits []byte
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	return string(digits)
+}
 
 // spaces returns n blanks, tolerating a negative count.
 func spaces(n int) string {

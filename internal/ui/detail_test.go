@@ -11,6 +11,12 @@ import (
 // hebrewOwner is a Hebrew personal name used to check right-to-left handling.
 const hebrewOwner = "שרה כהן"
 
+// mustBody renders the detail pane, discarding the entry map.
+func mustBody(m Model) string {
+	body, _ := m.buildDetailBody()
+	return body
+}
+
 func reverseRunes(s string) string {
 	r := []rune(s)
 	for lo, hi := 0, len(r)-1; lo < hi; lo, hi = lo+1, hi-1 {
@@ -198,7 +204,7 @@ func TestDetailBodyUsesOneColumnWhenNarrow(t *testing.T) {
 	}}
 	m.detailSections = graph.Sections(m.detail)
 
-	for _, line := range strings.Split(m.renderDetailBody(), "\n") {
+	for _, line := range strings.Split(mustBody(m), "\n") {
 		if lipgloss.Width(line) > boxInnerWidth(80) {
 			t.Errorf("line %q overflows the frame at width 80", line)
 		}
@@ -217,7 +223,7 @@ func TestDetailBodySpreadsToTwoColumnsWhenWide(t *testing.T) {
 	}
 	m.detailSections = graph.Sections(m.detail)
 
-	body := m.renderDetailBody()
+	body := mustBody(m)
 	// Two section headings on one line is the signature of a two-column pane.
 	found := false
 	for _, line := range strings.Split(body, "\n") {
@@ -241,7 +247,7 @@ func TestDetailBodyRendersSectionHeadingsAndNotes(t *testing.T) {
 	}
 	m.detailSections = graph.Sections(m.detail)
 
-	body := m.renderDetailBody()
+	body := mustBody(m)
 	if !strings.Contains(body, "ESSENTIALS") {
 		t.Error("detail body has no Essentials heading")
 	}

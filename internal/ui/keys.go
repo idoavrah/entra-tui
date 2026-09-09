@@ -22,6 +22,9 @@ type keyMap struct {
 	Copy      key.Binding
 	RawToggle key.Binding
 	Pair      key.Binding
+	AddMember key.Binding
+	AddOwner  key.Binding
+	Delete    key.Binding
 	Help      key.Binding
 	Quit      key.Binding
 }
@@ -49,7 +52,10 @@ var keys = keyMap{
 	RawToggle: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "raw json")),
 	// x jumps between an app registration and its enterprise application,
 	// which are two halves of the same thing in Entra.
-	Pair: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "app reg ⇄ ent app")),
-	Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-	Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+	Pair:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "app reg ⇄ ent app")),
+	AddMember: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add member")),
+	AddOwner:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "add owner")),
+	Delete:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove selected")),
+	Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }

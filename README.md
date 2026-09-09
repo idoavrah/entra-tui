@@ -48,6 +48,13 @@ entra-tui has three levels, and **nothing is queried until you ask for it**:
 3. **A view** — the table. `esc` walks back a level, `~` jumps home from
    anywhere.
 
+Sign-in happens on start, unattended, from your existing `az login` session —
+there is no login screen to click past. If it fails, the dashboard says so and
+`r` retries.
+
+General keys live in the header, k9s-style; the footer carries only what the
+screen in front of you does.
+
 The dashboard is a tile grid in the spirit of k9s's pulse screen: one card
 per view, each showing the directory-wide total in large numerals. Totals come
 from Graph's `$count` endpoint, which returns a bare integer for the whole
@@ -62,15 +69,14 @@ one. There is no client-secret mode, by design.
 
 | Method | What happens |
 | --- | --- |
-| **Browser** | OAuth 2.0 authorization code + PKCE. A loopback listener starts, your system browser opens the real Entra sign-in page, and the code comes back on the redirect. MFA and Conditional Access work exactly as on the web. If the browser does not open, the URL is shown on screen to copy. |
-| **Azure CLI** | Borrows the Graph token from an existing `az login` session. No prompt at all. |
+| **Azure CLI** (default) | Borrows the Graph token from an existing `az login` session. No prompt at all. |
+| **Browser** (`-auth browser`) | OAuth 2.0 authorization code + PKCE against a loopback redirect. MFA and Conditional Access work exactly as on the web. |
 
-**entra-tui tries the Azure CLI first, without asking.** If `az login` already
-has a session, you land straight on the dashboard; the method picker appears
-only when that fails. An existing session is a decision you already made, and
-entra-tui keeps **no token cache on disk**, so reusing it is what saves a
-browser round trip on every launch. `-auth browser` skips the attempt and goes
-straight to the picker.
+**entra-tui signs in through the Azure CLI, without asking.** An existing
+`az login` session is a decision you already made, and entra-tui keeps **no
+token cache on disk**, so reusing it is what saves a browser round trip on
+every launch. The browser flow is still implemented and reachable with
+`-auth browser`, but it is not offered in the interface.
 
 ### Which app registration?
 
@@ -113,6 +119,22 @@ permission model, not of this tool: no delegated scope can enumerate a
 directory without it. A `403` in the status bar means exactly this, and says
 so. Individual sections degrade on their own: if you cannot read owners, the
 Owners section explains that instead of the whole view failing.
+
+### Changing things
+
+By default entra-tui issues **GET requests only** and cannot alter your
+directory. Start it with `-write` (or `ENTRA_TUI_WRITE=1`) to enable adding
+and removing members and owners from the detail panes. That also requests four
+more delegated scopes:
+
+`GroupMember.ReadWrite.All` · `Group.ReadWrite.All` ·
+`Application.ReadWrite.All` · `Device.ReadWrite.All`
+
+They are off by default on purpose. These are admin-consent permissions that
+let the holder change who can access what, and quietly widening every existing
+user's consent from "read the directory" to "change the directory" is not a
+decision to make on their behalf — a tenant that refuses them would break the
+read-only views too.
 
 Override the scopes for an even narrower token:
 
@@ -174,8 +196,11 @@ something else next time — which makes the shortcuts useless from memory.
 The lists are per-view — the term that finds a person is rarely the term that
 finds an app registration. Opening `/` starts from an empty pattern rather
 than the term in force: the common case is looking for something new, and the
-previous term is one keystroke away in its slot. History lives for the life of
-the process; nothing is written to disk.
+previous term is one keystroke away in its slot.
+
+Slots are cached under your user cache directory (`~/.cache/entra-tui/` on
+Linux, `~/Library/Caches/entra-tui/` on macOS) so they survive a restart. The
+file is owner-readable only, since search terms can name people.
 
 `esc` clears the search; a second `esc` returns to the dashboard.
 
@@ -220,6 +245,28 @@ Anything Graph returned that no section claims still appears under *Other
 properties* — the grouped view never hides data the raw view would show.
 `R` toggles raw JSON.
 
+**Arrows select** the members and owners listed in the pane; `pgup`/`pgdn`
+scroll it. A long object is read by paging and its people are picked by
+arrowing.
+
+### Adding and removing people (with `-write`)
+
+`a` adds a member, `o` adds an owner — both in two steps. You type a name,
+sign-in name or email; entra-tui searches the directory and **only proceeds
+when exactly one object matches**. Two matches is refused with a "be more
+specific", because adding the wrong person is not a mistake worth risking on
+a guess.
+
+`d` removes the selected entry. Both confirmations name every party by
+**display name and object id** — display names are not unique in a directory,
+and confirming against the wrong "Ada Lovelace" is precisely what the dialog
+exists to prevent.
+
+Only `y` proceeds. Every other key, `enter` included, cancels: a confirmation
+that commits on `enter` is one held-down key away from a change nobody meant
+to make. After a change the object is re-read from Graph, so the pane shows
+what the directory holds rather than what was asked for.
+
 ### Jumping between the two halves of an app
 
 An Entra application is two objects: the **app registration** (`/applications`)
@@ -261,6 +308,9 @@ implemented. **The underlying data is never modified** — only what is drawn.
 | `R` | Raw JSON (detail view) |
 | `r` | Refresh from Graph |
 | `c` (or `y`) | Copy object id (OSC 52, works over SSH) |
+| `a` / `o` | Add a member / an owner (needs `-write`) |
+| `d` | Remove the selected member or owner (needs `-write`) |
+| `pgup` / `pgdn` | Scroll the detail pane |
 | `?` | Help |
 | `q` | Quit |
 
@@ -297,6 +347,7 @@ Every flag has an environment variable; flags win.
 | `-page-size` | `ENTRA_TUI_PAGE_SIZE` | `100` |
 | `-graph-url` | `ENTRA_TUI_GRAPH_URL` | `https://graph.microsoft.com/v1.0` |
 | `-view` | — | `users` (preselects a dashboard tile) |
+| `-write` | `ENTRA_TUI_WRITE` | off — reads only |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).
 
@@ -315,7 +366,7 @@ internal/auth/       delegated token acquisition (PKCE, Azure CLI)
 internal/bidi/       right-to-left reordering for non-bidi terminals
 internal/config/     flag + environment resolution
 internal/graph/      paged read-only Graph client, resources, detail sections
-internal/ui/         Bubble Tea model, screens, frame and table layout
+internal/ui/         Bubble Tea model, screens, dialogs, frame and table layout
 ```
 
 The Graph client keeps objects as loosely typed maps rather than generated
@@ -325,8 +376,9 @@ without a schema having to know about it first.
 ## Not implemented (yet)
 
 - Device-code sign-in for headless sessions with no browser
-- A persistent token cache, and search history that survives a restart
-- Writes of any kind — and that one is on purpose
+- A persistent token cache
+- Any write beyond membership and ownership: nothing creates, deletes or
+  renames a directory object
 
 ## License
 

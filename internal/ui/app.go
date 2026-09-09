@@ -21,8 +21,7 @@ import (
 type screen int
 
 const (
-	screenLogin screen = iota
-	screenDashboard
+	screenDashboard screen = iota
 	screenBrowse
 	screenDetail
 	screenHelp
@@ -50,6 +49,11 @@ type Options struct {
 	// Resource is the view opened when the user picks one from the dashboard
 	// first; it seeds the dashboard cursor.
 	Resource graph.Resource
+	// CacheDir holds the quick-search cache. Empty means the user's own
+	// cache directory; tests point it somewhere disposable.
+	CacheDir string
+	// Write enables membership and ownership changes.
+	Write bool
 }
 
 // Model is the root Bubble Tea model.
@@ -64,7 +68,6 @@ type Model struct {
 	mode       inputMode
 
 	// --- authentication -----------------------------------------------
-	authCursor  int
 	authing     bool
 	authURL     string
 	authURLCh   chan string
@@ -72,10 +75,6 @@ type Model struct {
 	identity    auth.Identity
 	client      *graph.Client
 	authAttempt int
-	// autoSignIn marks the unattended Azure CLI attempt made at startup. If
-	// it fails the picker is shown, without treating "not signed in to az" as
-	// an error worth reporting.
-	autoSignIn bool
 
 	// --- dashboard ----------------------------------------------------
 	dashCursor int
@@ -106,6 +105,19 @@ type Model struct {
 	detailRaw      bool
 	detailLoading  bool
 	detailVP       viewport.Model
+	// detailEntries are the selectable members and owners in the pane, and
+	// detailCursor indexes them.
+	detailEntries []detailEntry
+	detailCursor  int
+
+	// --- modal --------------------------------------------------------
+	modal       modalKind
+	modalAction modalAction
+	modalRel    graph.Relationship
+	modalTarget graph.Item
+	modalEntry  detailEntry
+	modalError  string
+	modalBusy   bool
 
 	// --- chrome -------------------------------------------------------
 	err      error
@@ -135,46 +147,57 @@ func New(ctx context.Context, opts Options) Model {
 	m := Model{
 		ctx:       ctx,
 		opts:      opts,
-		screen:    screenLogin,
+		screen:    screenDashboard,
 		authURLCh: make(chan string, 1),
-		history:   newSearchHistory(),
+		history:   loadSearchHistory(opts.CacheDir),
 		totals:    map[graph.Kind]int64{},
 		totalErrs: map[graph.Kind]error{},
 		input:     ti,
 		spin:      sp,
 	}
-	// An existing `az login` is enough to get going, so use it rather than
-	// making the user choose something they have already chosen. The picker
-	// appears only if that fails, or if the browser was asked for explicitly.
-	if opts.Auth.Method != auth.MethodBrowser {
-		m.autoSignIn = true
-		m.authing = true
-		// The attempt is numbered here, not in Init: Init takes the model by
-		// value, so an increment there would be discarded and the reply
-		// dropped as stale.
-		m.authAttempt = 1
-	}
-	// Preselect the option that will not need a browser round trip.
-	if auth.AzureCLIAvailable() {
-		m.authCursor = authOptionAzureCLI
-	}
-	if opts.Auth.Method == auth.MethodBrowser {
-		m.authCursor = authOptionBrowser
-	} else if opts.Auth.Method == auth.MethodAzureCLI {
-		m.authCursor = authOptionAzureCLI
-	}
+	// Sign-in starts immediately and unattended: there is nothing to ask, so
+	// there is no screen to flash. The dashboard shows the attempt in its
+	// status line and fills in as the tokens and counts arrive.
+	//
+	// The attempt is numbered here, not in Init: Init takes the model by
+	// value, so an increment there would be discarded and the reply dropped
+	// as stale.
+	m.authing = true
+	m.authAttempt = 1
 	m.dashCursor = dashboardIndexOf(opts.Resource.Kind)
 	return m
 }
 
-// Init starts the spinner, the listener for the sign-in URL, and the
-// unattended Azure CLI sign-in when one is worth trying.
-func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spin.Tick, waitForAuthURL(m.authURLCh)}
-	if m.autoSignIn {
-		cmds = append(cmds, m.authenticate(auth.MethodAzureCLI))
+// signInMethod is how this session authenticates.
+//
+// The browser flow is still implemented and reachable with -auth browser,
+// but the Azure CLI is the default and the only one the interface offers:
+// an existing az session is a decision the user already made, and a screen
+// that flashes past before anyone can read it is not a choice.
+func (m Model) signInMethod() auth.Method {
+	if m.opts.Auth.Method == auth.MethodBrowser {
+		return auth.MethodBrowser
 	}
-	return tea.Batch(cmds...)
+	return auth.MethodAzureCLI
+}
+
+// retryAuth starts a fresh sign-in attempt, abandoning any in flight.
+func (m Model) retryAuth() (Model, tea.Cmd) {
+	m.authAttempt++
+	m.authing = true
+	m.err = nil
+	m.authURL = ""
+	return m, m.authenticate(m.signInMethod())
+}
+
+// Init starts the spinner, the listener for the sign-in URL, and the
+// unattended sign-in.
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(
+		m.spin.Tick,
+		waitForAuthURL(m.authURLCh),
+		m.authenticate(m.signInMethod()),
+	)
 }
 
 // Update is the Bubble Tea event loop.
@@ -187,7 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenDetail {
 			// Re-wrap: the section layout depends on the frame's width, so a
 			// resize changes the content, not just the window onto it.
-			m.detailVP.SetContent(m.renderDetailBody())
+			m = m.refreshDetail()
 		}
 		m.clampCursor()
 		return m, nil
@@ -239,10 +262,73 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case principalsMsg:
+		return m.handlePrincipals(msg)
+
+	case writeDoneMsg:
+		return m.handleWriteDone(msg)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+// refreshDetail re-renders the pane, records where its selectable entries
+// landed, and scrolls the selection into view.
+func (m Model) refreshDetail() Model {
+	body, entries := m.buildDetailBody()
+	m.detailEntries = entries
+	if m.detailCursor >= len(entries) {
+		m.detailCursor = max(0, len(entries)-1)
+	}
+	m.detailVP.SetContent(body)
+	return m.scrollToSelection()
+}
+
+// scrollToSelection nudges the viewport so the selected entry is on screen.
+func (m Model) scrollToSelection() Model {
+	entry, ok := m.selectedEntry()
+	if !ok {
+		return m
+	}
+	top := m.detailVP.YOffset
+	height := m.detailVP.Height
+	switch {
+	case entry.line < top:
+		m.detailVP.SetYOffset(entry.line)
+	case entry.line >= top+height:
+		m.detailVP.SetYOffset(entry.line - height + 1)
+	}
+	return m
+}
+
+// selectedEntry is the member or owner under the cursor.
+func (m Model) selectedEntry() (detailEntry, bool) {
+	if m.detailCursor < 0 || m.detailCursor >= len(m.detailEntries) {
+		return detailEntry{}, false
+	}
+	return m.detailEntries[m.detailCursor], true
+}
+
+// detailHasRelationship reports whether the open object has an editable
+// collection of the given kind.
+func (m Model) detailHasRelationship(rel graph.Relationship) bool {
+	for _, s := range m.detailSections {
+		if s.Relationship == rel {
+			return true
+		}
+	}
+	return false
+}
+
+// ownerRelationship is the name this object's owners live under: devices
+// keep theirs under registeredOwners, everything else under owners.
+func (m Model) ownerRelationship() graph.Relationship {
+	if m.detail.Kind == graph.KindDevices {
+		return graph.RelRegisteredOwners
+	}
+	return graph.RelOwners
 }
 
 // ---------------------------------------------------------------- handlers
@@ -255,19 +341,10 @@ func (m Model) handleAuthDone(msg authDoneMsg) (tea.Model, tea.Cmd) {
 	m.authURL = ""
 
 	if msg.err != nil {
-		auto := m.autoSignIn
-		m.autoSignIn = false
-		// A missing or signed-out Azure CLI is the ordinary reason the
-		// unattended attempt fails. Falling back to the picker is the whole
-		// point, so it is not reported as an error.
-		if auto && errors.Is(msg.err, auth.ErrNoAzureCLI) {
-			return m, nil
-		}
 		m.err = msg.err
 		return m, nil
 	}
 
-	m.autoSignIn = false
 	m.err = nil
 	m.provider = msg.provider
 	m.identity = msg.provider.Identity()
@@ -324,8 +401,7 @@ func (m Model) handleDetail(msg detailMsg) (tea.Model, tea.Cmd) {
 	m.detailLoading = false
 	m.detail = msg.detail
 	m.detailSections = graph.Sections(msg.detail)
-	m.detailVP.SetContent(m.renderDetailBody())
-	return m, nil
+	return m.refreshDetail(), nil
 }
 
 func (m Model) handlePair(msg pairMsg) (tea.Model, tea.Cmd) {
@@ -346,6 +422,11 @@ func (m Model) handlePair(msg pairMsg) (tea.Model, tea.Cmd) {
 // ---------------------------------------------------------------- key input
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A dialog takes precedence over everything: it is asking a question and
+	// nothing else should act until it is answered.
+	if m.modal != modalNone {
+		return m.handleModalKey(msg)
+	}
 	// A prompt swallows keys until it is committed or cancelled.
 	if m.mode != modeNormal {
 		return m.handlePromptKey(msg)
@@ -354,8 +435,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case screenHelp:
 		m.screen = m.helpReturn
 		return m, nil
-	case screenLogin:
-		return m.handleLoginKey(msg)
 	case screenDashboard:
 		return m.handleDashboardKey(msg)
 	case screenDetail:
@@ -433,6 +512,32 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
+	// Arrows walk the members and owners; pages scroll the whole pane. A
+	// long object is read by paging, and its people are picked by arrowing.
+	case key.Matches(msg, keys.Up):
+		return m.moveDetailCursor(-1)
+	case key.Matches(msg, keys.Down):
+		return m.moveDetailCursor(1)
+	case key.Matches(msg, keys.PageUp):
+		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset-m.detailVP.Height))
+		return m, nil
+	case key.Matches(msg, keys.PageDown):
+		m.detailVP.SetYOffset(m.detailVP.YOffset + m.detailVP.Height)
+		return m, nil
+	case key.Matches(msg, keys.Home):
+		m.detailVP.GotoTop()
+		return m, nil
+	case key.Matches(msg, keys.End):
+		m.detailVP.GotoBottom()
+		return m, nil
+
+	case key.Matches(msg, keys.AddMember):
+		return m.openAddModal(graph.RelMembers)
+	case key.Matches(msg, keys.AddOwner):
+		return m.openAddModal(m.ownerRelationship())
+	case key.Matches(msg, keys.Delete):
+		return m.openRemoveModal()
+
 	case key.Matches(msg, keys.Back):
 		m.screen = screenBrowse
 		m.detail = graph.Detail{}
@@ -446,9 +551,8 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.toDashboard()
 	case key.Matches(msg, keys.RawToggle):
 		m.detailRaw = !m.detailRaw
-		m.detailVP.SetContent(m.renderDetailBody())
 		m.detailVP.GotoTop()
-		return m, nil
+		return m.refreshDetail(), nil
 	case key.Matches(msg, keys.Pair):
 		return m.jumpToPair()
 	case key.Matches(msg, keys.Copy):
@@ -458,9 +562,18 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenHelp
 		return m, nil
 	}
-	var cmd tea.Cmd
-	m.detailVP, cmd = m.detailVP.Update(msg)
-	return m, cmd
+	return m, nil
+}
+
+// moveDetailCursor walks the selectable entries, scrolling the pane by a
+// line when there are none to walk.
+func (m Model) moveDetailCursor(delta int) (tea.Model, tea.Cmd) {
+	if len(m.detailEntries) == 0 {
+		m.detailVP.SetYOffset(max(0, m.detailVP.YOffset+delta))
+		return m, nil
+	}
+	m.detailCursor = clamp(m.detailCursor+delta, 0, len(m.detailEntries)-1)
+	return m.refreshDetail(), nil
 }
 
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -608,7 +721,8 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	m.detail = graph.Detail{Kind: m.coll.res.Kind, Object: item}
 	m.detailSections = graph.Sections(m.detail)
 	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
-	m.detailVP.SetContent(m.renderDetailBody())
+	m.detailCursor = 0
+	m = m.refreshDetail()
 
 	if m.detailID == "" {
 		return m, nil
@@ -658,7 +772,8 @@ func (m Model) openPaired(c graph.Counterpart) (tea.Model, tea.Cmd) {
 	m.detail = graph.Detail{Kind: c.Kind, Object: graph.Item{"id": c.ID, "displayName": c.DisplayName}}
 	m.detailSections = graph.Sections(m.detail)
 	m.detailVP = viewport.New(boxInnerWidth(m.width), detailBodyHeight(m.height))
-	m.detailVP.SetContent(m.renderDetailBody())
+	m.detailCursor = 0
+	m = m.refreshDetail()
 	m.err = nil
 	return m, m.loadDetail(res, c.ID)
 }
