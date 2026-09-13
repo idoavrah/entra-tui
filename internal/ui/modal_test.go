@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -131,7 +132,7 @@ func TestPagesScrollThePropertiesNotTheList(t *testing.T) {
 	}
 }
 
-func TestAddFlowNeedsExactlyOneMatchThenAConfirmation(t *testing.T) {
+func TestAddFlowFindsThenConfirms(t *testing.T) {
 	// "a" adds to the tab in front, so the members tab is where a member is
 	// added from.
 	m := tabTitled(t, groupDetail(t, true), "Members")
@@ -145,16 +146,16 @@ func TestAddFlowNeedsExactlyOneMatchThenAConfirmation(t *testing.T) {
 		t.Error("committing the prompt did not start a lookup")
 	}
 
-	// Two matches is not a guess worth making.
+	// Two matches is not a guess worth making, so it becomes a choice.
 	ambiguous := send(t, m, principalsMsg{gen: m.gen, term: "ada", items: []graph.Item{
 		{"id": "u1", "displayName": "Ada Lovelace"},
 		{"id": "u2", "displayName": "Ada Byron"},
 	}})
-	if ambiguous.modal != modalAddPrompt {
-		t.Error("an ambiguous match moved on to the confirmation")
+	if ambiguous.modal != modalPick {
+		t.Errorf("modal = %v, want the picker for an ambiguous term", ambiguous.modal)
 	}
-	if !strings.Contains(ambiguous.modalError, "be more specific") {
-		t.Errorf("modalError = %q, want it to ask for a narrower term", ambiguous.modalError)
+	if ambiguous.modalError != "" {
+		t.Errorf("modalError = %q, want the list to replace the complaint", ambiguous.modalError)
 	}
 
 	// Nothing found says so.
@@ -431,4 +432,141 @@ func TestChangeSummaryCarriesTheID(t *testing.T) {
 	if !strings.Contains(m.flash, "u9") {
 		t.Errorf("flash = %q, want the id in the record of what happened", m.flash)
 	}
+}
+
+func TestAmbiguousAddOffersTheMatchesAsAChoice(t *testing.T) {
+	m := tabTitled(t, groupDetail(t, true), "Members")
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "ada")
+	m = send(t, m, press("enter"))
+	m = send(t, m, principalsMsg{gen: m.gen, term: "ada", items: []graph.Item{
+		{"id": "u1", "displayName": "Ada Lovelace", "userPrincipalName": "ada.l@x.com"},
+		{"id": "u2", "displayName": "Ada Byron", "userPrincipalName": "ada.b@x.com"},
+		{"id": "g1", "displayName": "Ada Team", "mail": "ada-team@x.com", "securityEnabled": true},
+	}})
+
+	if m.modal != modalPick {
+		t.Fatalf("modal = %v, want the picker", m.modal)
+	}
+
+	// Every candidate is on screen, told apart by the detail that differs and
+	// labelled with its kind -- a member may be a user or a group.
+	view := m.View()
+	for _, want := range []string{
+		"Ada Lovelace", "ada.l@x.com", "Ada Byron", "ada.b@x.com",
+		"Ada Team", "ada-team@x.com", "User", "Group",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the picker does not show %q", want)
+		}
+	}
+
+	// Moving down twice and choosing takes the third, not the first.
+	m = send(t, m, press("down"))
+	m = send(t, m, press("down"))
+	if m.modalCursor != 2 {
+		t.Fatalf("cursor = %d, want the third candidate", m.modalCursor)
+	}
+	m = send(t, m, press("enter"))
+
+	if m.modal != modalConfirm || m.modalAction != actionAdd {
+		t.Fatalf("modal = %v action = %v, want an add confirmation", m.modal, m.modalAction)
+	}
+	if got := m.modalTarget.ID(); got != "g1" {
+		t.Errorf("target = %q, want the candidate under the cursor", got)
+	}
+	// Choosing is not writing: the confirmation still has to be answered, and
+	// it still names the id.
+	if !strings.Contains(m.View(), "g1") {
+		t.Error("the confirmation does not name the chosen object's id")
+	}
+}
+
+func TestPickerCursorStaysInRange(t *testing.T) {
+	m := pickerWith(t, 3)
+
+	m = send(t, m, press("up"))
+	if m.modalCursor != 0 {
+		t.Errorf("cursor = %d, want up at the top to stay put", m.modalCursor)
+	}
+	m = send(t, m, press("end"))
+	if m.modalCursor != 2 {
+		t.Errorf("cursor = %d, want end to reach the last candidate", m.modalCursor)
+	}
+	m = send(t, m, press("down"))
+	if m.modalCursor != 2 {
+		t.Errorf("cursor = %d, want down at the bottom to stay put", m.modalCursor)
+	}
+	m = send(t, m, press("home"))
+	if m.modalCursor != 0 {
+		t.Errorf("cursor = %d, want home to return to the first", m.modalCursor)
+	}
+}
+
+func TestPickerScrollsRatherThanOutgrowingTheDialog(t *testing.T) {
+	const candidates = pickerRows + 4
+	m := pickerWith(t, candidates)
+
+	// At rest the window starts at the top and shows what fits.
+	if start, end := m.pickWindow(); start != 0 || end != pickerRows {
+		t.Errorf("window = [%d,%d), want the first %d", start, end, pickerRows)
+	}
+	if !strings.Contains(m.View(), "more") {
+		t.Error("the picker does not say that candidates are off screen")
+	}
+
+	// The last candidate is reachable, and the window has moved to hold it.
+	m = send(t, m, press("end"))
+	start, end := m.pickWindow()
+	if end != candidates || start != candidates-pickerRows {
+		t.Errorf("window = [%d,%d), want the last %d", start, end, pickerRows)
+	}
+	if !strings.Contains(m.View(), "Ada 11") {
+		t.Error("the last candidate is not on screen after end")
+	}
+}
+
+func TestEscapeFromThePickerReturnsToThePromptWithTheTerm(t *testing.T) {
+	// Narrowing a near miss should not mean retyping it.
+	m := pickerWith(t, 3)
+	m = send(t, m, press("esc"))
+
+	if m.modal != modalAddPrompt {
+		t.Fatalf("modal = %v, want escape to step back to the prompt", m.modal)
+	}
+	if got := m.input.Value(); got != "ada" {
+		t.Errorf("input = %q, want the term kept for narrowing", got)
+	}
+	if len(m.modalItems) != 0 {
+		t.Errorf("modalItems = %v, want the stale candidates dropped", m.modalItems)
+	}
+
+	// And escaping again leaves entirely, as it does from a fresh prompt.
+	m = send(t, m, press("esc"))
+	if m.modal != modalNone {
+		t.Errorf("modal = %v, want the dialog closed", m.modal)
+	}
+}
+
+// pickerWith opens the add picker on n generated candidates.
+func pickerWith(t *testing.T, n int) Model {
+	t.Helper()
+	m := tabTitled(t, groupDetail(t, true), "Members")
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "ada")
+	m = send(t, m, press("enter"))
+
+	items := make([]graph.Item, n)
+	for i := range items {
+		items[i] = graph.Item{
+			"id":                fmt.Sprintf("u%d", i),
+			"displayName":       fmt.Sprintf("Ada %d", i),
+			"userPrincipalName": fmt.Sprintf("ada%d@x.com", i),
+		}
+	}
+	m = send(t, m, principalsMsg{gen: m.gen, term: "ada", items: items})
+	if m.modal != modalPick {
+		t.Fatalf("modal = %v, want the picker", m.modal)
+	}
+	return m
 }

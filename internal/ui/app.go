@@ -161,6 +161,10 @@ type Model struct {
 	modalAction modalAction
 	modalRel    graph.Relationship
 	modalTarget graph.Item
+	// modalItems are the candidates an ambiguous add is choosing between,
+	// and modalCursor the one in front.
+	modalItems  []graph.Item
+	modalCursor int
 	modalEntry  detailEntry
 	modalError  string
 	modalBusy   bool

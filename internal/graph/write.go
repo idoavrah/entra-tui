@@ -124,7 +124,8 @@ func (c *Client) write(ctx context.Context, method, u string, body []byte) error
 //
 // Owners must be users; members may also be groups, so a group is searched
 // for only when the relationship allows one. The caller decides what to do
-// with an ambiguous result -- this returns everything it found.
+// with an ambiguous result -- this returns everything it found, which for a
+// member search is up to PrincipalSearchLimit of each kind.
 func (c *Client) FindPrincipals(ctx context.Context, rel Relationship, term string) ([]Item, error) {
 	term = strings.TrimSpace(term)
 	if term == "" {
@@ -141,9 +142,12 @@ func (c *Client) FindPrincipals(ctx context.Context, rel Relationship, term stri
 		return found, nil
 	}
 
+	// securityEnabled is selected for its presence, not its value: it is what
+	// tells ObjectViewKind a bare group apart from a user, so the picker can
+	// label the two.
 	groups, err := c.searchPrincipals(ctx, "/groups",
 		[]string{"displayName", "mail"},
-		[]string{"id", "displayName", "mail"}, term)
+		[]string{"id", "displayName", "mail", "securityEnabled"}, term)
 	if err != nil {
 		// A user match is still useful when the group lookup is refused.
 		return found, nil
@@ -151,16 +155,20 @@ func (c *Client) FindPrincipals(ctx context.Context, rel Relationship, term stri
 	return append(found, groups...), nil
 }
 
-// searchPrincipals runs one bounded search. The cap is deliberately small:
-// the add flow only proceeds on a single match, so a long list is only ever
-// reported as "too many".
+// PrincipalSearchLimit caps how many candidates one collection contributes to
+// an add. It is small on purpose: the caller offers these as a list to pick
+// from, and a list nobody can read at a glance is no better than an error --
+// past this point the honest answer is to narrow the term.
+const PrincipalSearchLimit = 10
+
+// searchPrincipals runs one bounded search.
 func (c *Client) searchPrincipals(ctx context.Context, path string, searchFields, sel []string, term string) ([]Item, error) {
 	page, err := c.List(ctx, Query{
 		Path:         path,
 		Select:       sel,
 		SearchFields: searchFields,
 		SearchTerm:   term,
-		Top:          5,
+		Top:          PrincipalSearchLimit,
 	})
 	if err != nil {
 		return nil, err

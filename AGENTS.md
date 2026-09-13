@@ -147,6 +147,16 @@ written — a device's owners live under `registeredOwners`, and the section
 carries that name. Confirmations name both parties by display name *and*
 object id, and only `y` proceeds.
 
+An `a` that matches more than one object opens a picker rather than resolving
+the ambiguity or refusing it. Guessing risks adding the wrong person, and
+demanding a narrower term asks the user to solve a problem they cannot see —
+two people really can share a display name. Picking is not writing: the
+confirmation still follows, and still names the id. Rows carry the kind
+because a member may be a user or a group, taken from `ObjectViewKind` so a
+row cannot be labelled one thing here and another in the table it came from —
+which is why the group search selects `securityEnabled`, for its presence
+rather than its value.
+
 ## Search and slots
 
 `/` re-queries Graph; there is no local filter. A search earns a slot by
