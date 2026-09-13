@@ -275,3 +275,49 @@ func TestSelectionKeepsARowsStateColour(t *testing.T) {
 		t.Error("the selected row is not marked as selected at all")
 	}
 }
+
+func TestDashboardTilesAreWideEnoughForWhatTheySay(t *testing.T) {
+	// The tiles used to be laid out on width alone, which gave three across
+	// at 150 columns -- four cells too narrow for the longest description,
+	// so it lost its last words to an ellipsis on every launch.
+	preferred := tilePreferredWidth()
+
+	for _, width := range []int{156, 180, 200, 240} {
+		m := Model{width: width}
+		columns := m.dashboardColumns()
+		if got := tileWidthFor(boxInnerWidth(width), columns); got < preferred {
+			t.Errorf("at %d columns the tile is %d wide, want at least %d",
+				width, got, preferred)
+		}
+	}
+
+	// A tile that reaches the preferred width shows every description whole.
+	for _, res := range graph.All() {
+		if got := graph.Truncate(res.Description, preferred-2-2); got != res.Description {
+			t.Errorf("%s is cut to %q at the preferred width", res.Kind, got)
+		}
+	}
+}
+
+func TestNarrowDashboardsKeepTheirLayout(t *testing.T) {
+	// Widening is for terminals with room. Below the two-column threshold
+	// the choice is cramped against unreadable, and one tile per row is what
+	// reads -- so a narrow terminal must not be handed narrower tiles in the
+	// name of fitting more of them.
+	for width, want := range map[int]int{60: 1, 80: 1, 90: 2, 120: 2} {
+		if got := (Model{width: width}).dashboardColumns(); got != want {
+			t.Errorf("at width %d got %d columns, want %d", width, got, want)
+		}
+	}
+}
+
+func TestTheDashboardNeverCutsADescription(t *testing.T) {
+	// The end-to-end version: render at a real size and look for the mark
+	// Truncate leaves behind.
+	m := newDashboardModel(t)
+	for _, line := range strings.Split(m.renderDashboard(), "\n") {
+		if strings.Contains(line, "…") {
+			t.Errorf("a dashboard tile is cutting its text: %q", strings.TrimSpace(line))
+		}
+	}
+}

@@ -14,12 +14,33 @@ const (
 	tileGap = 2
 	// tileBodyHeight is the big number plus the description line.
 	tileBodyHeight = bigDigitHeight + 1
-	// Column-count thresholds, measured against the frame's inner width.
-	threeColumnDashboard = 132
-	twoColumnDashboard   = 88
-	// tileMinWidth keeps a tile wide enough for a seven-digit count.
+	// maxDashboardColumns caps the grid. Past three the tiles are narrower
+	// than the thing they describe.
+	maxDashboardColumns = 3
+	// twoColumnDashboard is the width below which one tile per row is the
+	// only thing that reads, whatever the descriptions would like.
+	twoColumnDashboard = 88
+	// tileMinWidth keeps a tile wide enough for a seven-digit count. It is
+	// the floor, not the goal -- see tilePreferredWidth.
 	tileMinWidth = 34
 )
+
+// tilePreferredWidth is wide enough for the longest description a tile can
+// carry, plus its border and the cell Truncate leaves either side. Measured
+// rather than written down, so adding a wordier view widens the tiles instead
+// of quietly clipping one.
+func tilePreferredWidth() int {
+	widest := 0
+	for _, r := range graph.All() {
+		widest = max(widest, lipgloss.Width(r.Description))
+	}
+	return widest + 4
+}
+
+// tileWidthFor is how wide each tile is when the row holds this many.
+func tileWidthFor(inner, columns int) int {
+	return (inner - (columns-1)*tileGap) / columns
+}
 
 // dashboardIndexOf finds a resource's position on the dashboard.
 func dashboardIndexOf(kind graph.Kind) int {
@@ -73,23 +94,35 @@ func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // dashboardColumns is how many tiles fit across.
+//
+// Fewer, wider tiles beat more, narrower ones: a column count chosen purely
+// on available width gave three tiles at 150 columns, each four cells too
+// narrow for the longest description, which then lost its last few words to
+// an ellipsis on every launch.
 func (m Model) dashboardColumns() int {
 	inner := boxInnerWidth(m.width)
-	switch {
-	case inner >= threeColumnDashboard:
-		return 3
-	case inner >= twoColumnDashboard:
-		return 2
-	default:
-		return 1
+
+	// As many across as can each still show a description in full.
+	preferred := tilePreferredWidth()
+	for columns := maxDashboardColumns; columns > 1; columns-- {
+		if tileWidthFor(inner, columns) >= preferred {
+			return columns
+		}
 	}
+	// Below that, the choice stops being wide against wider and becomes
+	// cramped against unreadable, so a narrow terminal keeps the layout it
+	// already had.
+	if inner >= twoColumnDashboard {
+		return 2
+	}
+	return 1
 }
 
 func (m Model) renderDashboard() string {
 	all := graph.All()
 	columns := m.dashboardColumns()
 	inner := boxInnerWidth(m.width)
-	tileWidth := max(tileMinWidth, (inner-(columns-1)*tileGap)/columns)
+	tileWidth := max(tileMinWidth, tileWidthFor(inner, columns))
 
 	var body []string
 	for start := 0; start < len(all); start += columns {

@@ -98,6 +98,15 @@ Two legends, two jobs: everything that changes screen or moves around is in
 the header; the footer carries only what the screen can *do*. Don't repeat one
 in the other.
 
+The dashboard picks its column count from what a tile has to say, not from the
+width alone: `tilePreferredWidth` measures the longest view description, and
+the grid takes the most columns where every tile still clears it. Choosing on
+width alone put three tiles across a 150-column terminal, four cells too
+narrow for the longest one, which lost its last words to an ellipsis on every
+launch. Below `twoColumnDashboard` the choice stops being wide against wider
+and becomes cramped against unreadable, so a narrow terminal keeps one tile
+per row.
+
 ## Detail panes
 
 The object's own fields stay on top; everything enumerating other objects
