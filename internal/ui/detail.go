@@ -40,9 +40,12 @@ const (
 
 // detailEntry is one selectable object in a list tab -- a member or an owner.
 type detailEntry struct {
-	rel  graph.Relationship
-	id   string
-	name string
+	rel graph.Relationship
+	id  string
+	// refID names the entry inside its relationship, when that is not the
+	// object's own id. An app role assignment is deleted by its own id.
+	refID string
+	name  string
 	// detail is the entry's secondary text -- the sign-in name or object
 	// kind -- carried so a confirmation can identify it without guessing.
 	detail string
@@ -112,8 +115,13 @@ func (m Model) selectedEntry() (detailEntry, bool) {
 	if f.ID == "" {
 		return detailEntry{}, false
 	}
+	refID := f.RefID
+	if refID == "" {
+		refID = f.ID
+	}
 	return detailEntry{
-		rel: section.Relationship, id: f.ID, name: f.Label, detail: f.Value,
+		rel: section.Relationship, id: f.ID, refID: refID,
+		name: f.Label, detail: f.Value,
 	}, true
 }
 

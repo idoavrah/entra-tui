@@ -570,3 +570,231 @@ func pickerWith(t *testing.T, n int) Model {
 	}
 	return m
 }
+
+// enterpriseAppDetail opens an enterprise application whose "Users and
+// groups" tab is in front. roles are the app roles it publishes.
+func enterpriseAppDetail(t *testing.T, roles []any) Model {
+	t.Helper()
+	res, _ := graph.Lookup("users")
+	m := New(t.Context(), Options{
+		GraphURL: "http://127.0.0.1:1/v1.0", PageSize: 100, Resource: res,
+		CacheDir: t.TempDir(),
+		Client:   graph.New(stubProvider{}, graph.WithBaseURL("http://127.0.0.1:1/v1.0")),
+		Identity: stubProvider{}.Identity(),
+	})
+	m = send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
+
+	apps, _ := graph.Lookup("entapps")
+	next, _ := m.openResource(apps)
+	m = next.(Model)
+	m.loading = false
+	m = send(t, m, pageMsg{gen: m.gen, page: &graph.Page{Items: []graph.Item{
+		{"id": "s1", "displayName": "Matchmaking"},
+	}}})
+	m = send(t, m, press("enter"))
+
+	object := graph.Item{"id": "s1", "displayName": "Matchmaking", "servicePrincipalType": "Application"}
+	if roles != nil {
+		object["appRoles"] = roles
+	}
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:   graph.KindEnterpriseApps,
+		Object: object,
+		Assignments: []graph.Item{{
+			"id": "ar-1", "principalId": "u1", "principalDisplayName": "Ada",
+			"principalType": "User", "appRoleId": graph.DefaultAppRoleID,
+		}},
+	}})
+	return tabTitled(t, m, "Users and groups")
+}
+
+// liveOpsRole is an ordinary assignable role.
+var liveOpsRole = map[string]any{
+	"id": "role-live-ops", "displayName": "Live Ops Admin",
+	"description": "Runs live events.", "isEnabled": true,
+	"allowedMemberTypes": []any{"User"},
+}
+
+func TestEnterpriseAppTakesUsersAndGroups(t *testing.T) {
+	m := enterpriseAppDetail(t, nil)
+
+	// The tab is writable, and the hint names what "a" would add.
+	if !strings.Contains(m.View(), "add user or group") {
+		t.Error("the enterprise app does not offer to add a user or group")
+	}
+	m = send(t, m, press("a"))
+	if m.modal != modalAddPrompt || m.modalRel != graph.RelAppRoleAssignments {
+		t.Fatalf("modal = %v rel = %q, want the assignment prompt", m.modal, m.modalRel)
+	}
+
+	// A group is a legitimate assignee here, as it is for members.
+	if !graph.RelAppRoleAssignments.AllowsGroups() {
+		t.Error("an app role assignment refuses groups")
+	}
+}
+
+func TestAnAppWithNoRolesAssignsDefaultAccessWithoutAsking(t *testing.T) {
+	// A list of one is a question with a single answer, so it is answered.
+	m := enterpriseAppDetail(t, nil)
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "bram")
+	m = send(t, m, press("enter"))
+	m = send(t, m, principalsMsg{gen: m.gen, term: "bram", items: []graph.Item{
+		{"id": "u7", "displayName": "Bram", "userPrincipalName": "bram@x.com"},
+	}})
+
+	if m.modal != modalConfirm {
+		t.Fatalf("modal = %v, want the confirmation without a role step", m.modal)
+	}
+	if m.modalRoleID != graph.DefaultAppRoleID {
+		t.Errorf("role = %q, want the default access role", m.modalRoleID)
+	}
+	if !strings.Contains(m.View(), defaultAccessLabel) {
+		t.Error("the confirmation does not say which role is granted")
+	}
+}
+
+func TestAnAppWithRolesAsksWhichOneDefaultingToAccess(t *testing.T) {
+	m := enterpriseAppDetail(t, []any{liveOpsRole})
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "bram")
+	m = send(t, m, press("enter"))
+	m = send(t, m, principalsMsg{gen: m.gen, term: "bram", items: []graph.Item{
+		{"id": "u7", "displayName": "Bram", "userPrincipalName": "bram@x.com"},
+	}})
+
+	if m.modal != modalRole {
+		t.Fatalf("modal = %v, want the role picker", m.modal)
+	}
+	// Default Access comes first and the cursor starts on it: it is both the
+	// commonest answer and the only one every application can offer.
+	if m.modalCursor != 0 || m.modalRoles[0].ID != graph.DefaultAppRoleID {
+		t.Errorf("roles = %+v cursor = %d, want default access preselected",
+			m.modalRoles, m.modalCursor)
+	}
+	view := m.View()
+	for _, want := range []string{"Choose the role", defaultAccessLabel, "Live Ops Admin", "Runs live events."} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the role picker does not show %q", want)
+		}
+	}
+
+	// Taking the published role carries it into the confirmation.
+	m = send(t, m, press("down"))
+	m = send(t, m, press("enter"))
+	if m.modal != modalConfirm {
+		t.Fatalf("modal = %v, want the confirmation", m.modal)
+	}
+	if m.modalRoleID != "role-live-ops" {
+		t.Errorf("role = %q, want the chosen role", m.modalRoleID)
+	}
+	if !strings.Contains(m.View(), "Live Ops Admin") {
+		t.Error("the confirmation does not name the role being granted")
+	}
+}
+
+func TestUnassignableRolesAreNotOffered(t *testing.T) {
+	// A disabled role cannot be assigned at all, and one published only for
+	// applications is for service principals rather than people.
+	m := enterpriseAppDetail(t, []any{
+		map[string]any{"id": "off", "displayName": "Retired", "isEnabled": false,
+			"allowedMemberTypes": []any{"User"}},
+		map[string]any{"id": "daemon", "displayName": "Daemon", "isEnabled": true,
+			"allowedMemberTypes": []any{"Application"}},
+	})
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "bram")
+	m = send(t, m, press("enter"))
+	m = send(t, m, principalsMsg{gen: m.gen, term: "bram", items: []graph.Item{
+		{"id": "u7", "displayName": "Bram", "userPrincipalName": "bram@x.com"},
+	}})
+
+	// Nothing assignable is left, so there is no question to ask.
+	if m.modal != modalConfirm {
+		t.Fatalf("modal = %v, want no role step when none can be assigned", m.modal)
+	}
+	if m.modalRoleID != graph.DefaultAppRoleID {
+		t.Errorf("role = %q, want default access", m.modalRoleID)
+	}
+}
+
+func TestEscapeFromTheRolePickerStepsBackOneStage(t *testing.T) {
+	m := enterpriseAppDetail(t, []any{liveOpsRole})
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "ada")
+	m = send(t, m, press("enter"))
+
+	// Two matches, so there was a list to come back to.
+	m = send(t, m, principalsMsg{gen: m.gen, term: "ada", items: []graph.Item{
+		{"id": "u1", "displayName": "Ada Lovelace", "userPrincipalName": "ada.l@x.com"},
+		{"id": "u2", "displayName": "Ada Byron", "userPrincipalName": "ada.b@x.com"},
+	}})
+	m = send(t, m, press("down"))
+	m = send(t, m, press("enter"))
+	if m.modal != modalRole {
+		t.Fatalf("modal = %v, want the role picker", m.modal)
+	}
+
+	m = send(t, m, press("esc"))
+	if m.modal != modalPick {
+		t.Fatalf("modal = %v, want escape to return to the candidates", m.modal)
+	}
+	m = send(t, m, press("esc"))
+	if m.modal != modalAddPrompt || m.input.Value() != "ada" {
+		t.Errorf("modal = %v input = %q, want the prompt with the term kept",
+			m.modal, m.input.Value())
+	}
+}
+
+func TestAssignmentsAreDeletedByTheirOwnID(t *testing.T) {
+	// One user can hold several roles on one application, so "remove the
+	// user" would not say which. The entry carries the assignment's id.
+	m := enterpriseAppDetail(t, nil)
+	entry, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("the assignment under the cursor is not selectable")
+	}
+	if entry.id != "u1" {
+		t.Errorf("id = %q, want the principal, which is what enter opens", entry.id)
+	}
+	if entry.refID != "ar-1" {
+		t.Errorf("refID = %q, want the assignment's own id", entry.refID)
+	}
+}
+
+func TestDeletingAnAssignmentSaysWhatItDeletes(t *testing.T) {
+	// "Delete user or group" would read as deleting the person from the
+	// directory. Only the assignment to this one application goes.
+	m := enterpriseAppDetail(t, nil)
+	m = send(t, m, press("d"))
+	if m.modal != modalConfirm || m.modalAction != actionRemove {
+		t.Fatalf("modal = %v action = %v, want a delete confirmation", m.modal, m.modalAction)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "Delete assignment") {
+		t.Error("the confirmation does not say it is the assignment being deleted")
+	}
+	if strings.Contains(view, "Delete user or group") {
+		t.Error("the confirmation reads as deleting the person from the directory")
+	}
+	// It still names both parties, which is the whole point of the dialog.
+	for _, want := range []string{"Ada", "u1", "Matchmaking", "s1"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the confirmation does not name %q", want)
+		}
+	}
+}
+
+func TestAssigningSaysAssign(t *testing.T) {
+	m := enterpriseAppDetail(t, nil)
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "bram")
+	m = send(t, m, press("enter"))
+	m = send(t, m, principalsMsg{gen: m.gen, term: "bram", items: []graph.Item{
+		{"id": "u7", "displayName": "Bram", "userPrincipalName": "bram@x.com"},
+	}})
+	if !strings.Contains(m.View(), "Assign user or group") {
+		t.Error("the confirmation does not say the principal is being assigned")
+	}
+}

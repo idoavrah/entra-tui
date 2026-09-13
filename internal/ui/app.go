@@ -162,12 +162,17 @@ type Model struct {
 	modalRel    graph.Relationship
 	modalTarget graph.Item
 	// modalItems are the candidates an ambiguous add is choosing between,
-	// and modalCursor the one in front.
+	// modalRoles the roles an app role assignment may grant, and modalCursor
+	// the row in front of whichever list is on screen.
 	modalItems  []graph.Item
+	modalRoles  []graph.AppRole
 	modalCursor int
-	modalEntry  detailEntry
-	modalError  string
-	modalBusy   bool
+	// modalRole is the role a confirmed assignment will grant.
+	modalRoleID   string
+	modalRoleName string
+	modalEntry    detailEntry
+	modalError    string
+	modalBusy     bool
 
 	// --- chrome -------------------------------------------------------
 	err      error

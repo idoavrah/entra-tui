@@ -20,6 +20,8 @@ const (
 	modalAddPrompt
 	// modalPick chooses between the candidates an ambiguous term matched.
 	modalPick
+	// modalRole chooses which role an app role assignment grants.
+	modalRole
 	// modalConfirm asks for a yes before anything is written.
 	modalConfirm
 )
@@ -38,13 +40,19 @@ const (
 )
 
 // modalWidth is the dialog's width, clamped to the frame at render time.
-const modalWidth = 66
+// Wide enough that a sign-in name and a role description sit beside a display
+// name without either being cut.
+const modalWidth = 86
+
+// defaultAccessLabel names the roleless assignment, matching what the portal
+// calls it so the two agree.
+const defaultAccessLabel = "Default Access"
 
 // openAddModal starts the two-step add: type a name, then confirm the single
 // match. Nothing is written until the confirmation is answered.
 func (m Model) openAddModal(rel graph.Relationship) (tea.Model, tea.Cmd) {
 	if !m.detailHasRelationship(rel) {
-		return m, m.flashFor(fmt.Sprintf("this object has no %s to add to", rel.Label()+"s"))
+		return m, m.flashFor(fmt.Sprintf("this object has no %s to add to", rel.Plural()))
 	}
 
 	m.modal = modalAddPrompt
@@ -61,7 +69,7 @@ func (m Model) openAddModal(rel graph.Relationship) (tea.Model, tea.Cmd) {
 func (m Model) openRemoveModal() (tea.Model, tea.Cmd) {
 	entry, ok := m.selectedEntry()
 	if !ok {
-		return m, m.flashFor("select a member or an owner first")
+		return m, m.flashFor("select a row in the list first")
 	}
 
 	m.modal = modalConfirm
@@ -77,6 +85,9 @@ func (m Model) closeModal() Model {
 	m.modal = modalNone
 	m.modalTarget = nil
 	m.modalItems = nil
+	m.modalRoles = nil
+	m.modalRoleID = ""
+	m.modalRoleName = ""
 	m.modalCursor = 0
 	m.modalError = ""
 	m.modalBusy = false
@@ -113,7 +124,7 @@ func (m Model) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 
-	case modalPick:
+	case modalPick, modalRole:
 		return m.handlePickKey(msg)
 
 	case modalConfirm:
@@ -135,25 +146,13 @@ func (m Model) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // Choosing still lands on the confirmation rather than writing: the picker
 // narrows who is meant, it does not decide that the change should happen.
 func (m Model) handlePickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	last := len(m.modalItems) - 1
+	last := len(m.pickOptions()) - 1
 
 	switch msg.Type {
 	case tea.KeyEsc:
-		// Back to the prompt with the term still in it, so a near miss can be
-		// narrowed instead of retyped from scratch.
-		m.modal = modalAddPrompt
-		m.modalItems = nil
-		m.modalCursor = 0
-		m.modalError = ""
-		m.input.CursorEnd()
-		return m, m.input.Focus()
+		return m.pickBack()
 	case tea.KeyEnter:
-		m.modalTarget = m.modalItems[m.modalCursor]
-		m.modal = modalConfirm
-		m.modalAction = actionAdd
-		m.modalItems = nil
-		m.modalCursor = 0
-		return m, nil
+		return m.pickChoose()
 	case tea.KeyUp:
 		m.modalCursor = max(0, m.modalCursor-1)
 		return m, nil
@@ -184,6 +183,83 @@ func (m Model) handlePickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// pickBack steps one stage back rather than abandoning the dialog, so a wrong
+// turn costs a keystroke instead of the whole answer.
+func (m Model) pickBack() (tea.Model, tea.Cmd) {
+	// From the role, back to the candidates -- but only if there were any to
+	// choose between; a single match never showed a list to return to.
+	if m.modal == modalRole && len(m.modalItems) > 1 {
+		m.modal = modalPick
+		m.modalCursor = 0
+		return m, nil
+	}
+	// Otherwise back to the prompt with the term still in it, so a near miss
+	// can be narrowed instead of retyped from scratch.
+	m.modal = modalAddPrompt
+	m.modalItems = nil
+	m.modalRoles = nil
+	m.modalCursor = 0
+	m.modalError = ""
+	m.input.CursorEnd()
+	return m, m.input.Focus()
+}
+
+// pickChoose takes the row under the cursor.
+func (m Model) pickChoose() (tea.Model, tea.Cmd) {
+	if m.modal == modalRole {
+		role := m.modalRoles[m.modalCursor]
+		m.modalRoleID, m.modalRoleName = role.ID, role.DisplayName
+		m.modal = modalConfirm
+		return m, nil
+	}
+
+	m.modalTarget = m.modalItems[m.modalCursor]
+	m.modalAction = actionAdd
+	return m.afterPrincipalChosen(), nil
+}
+
+// afterPrincipalChosen moves on to the role when there is a role to choose,
+// and straight to the confirmation when there is not.
+//
+// Only an enterprise application has roles at all, and one that publishes
+// none can offer nothing but Default Access -- a list of one is a question
+// with a single answer, so it is answered rather than asked.
+func (m Model) afterPrincipalChosen() Model {
+	m.modalRoleID, m.modalRoleName = "", ""
+	if m.modalRel != graph.RelAppRoleAssignments {
+		m.modal = modalConfirm
+		return m
+	}
+
+	roles := assignableRoles(m.detail.Object)
+	if len(roles) < 2 {
+		m.modalRoleID, m.modalRoleName = graph.DefaultAppRoleID, defaultAccessLabel
+		m.modal = modalConfirm
+		return m
+	}
+	m.modalRoles = roles
+	m.modalCursor = 0
+	m.modal = modalRole
+	return m
+}
+
+// assignableRoles is what an assignment may grant, with Default Access first
+// so the cursor starts on it: it is both the commonest answer and the only
+// one every application can offer.
+func assignableRoles(o graph.Item) []graph.AppRole {
+	roles := []graph.AppRole{{
+		ID:          graph.DefaultAppRoleID,
+		DisplayName: defaultAccessLabel,
+		Description: "Admits them to the application without granting a role.",
+	}}
+	for _, r := range graph.AppRoles(o) {
+		if r.AssignableToPrincipals() {
+			roles = append(roles, r)
+		}
+	}
+	return roles
+}
+
 // handlePrincipals turns a lookup into a confirmation, or explains why it
 // cannot.
 func (m Model) handlePrincipals(msg principalsMsg) (tea.Model, tea.Cmd) {
@@ -208,10 +284,11 @@ func (m Model) handlePrincipals(msg principalsMsg) (tea.Model, tea.Cmd) {
 		m.modalCursor = 0
 		m.input.Blur()
 	default:
-		m.modal = modalConfirm
 		m.modalAction = actionAdd
 		m.modalTarget = msg.items[0]
+		m.modalItems = msg.items
 		m.input.Blur()
+		m = m.afterPrincipalChosen()
 	}
 	return m, nil
 }
@@ -258,7 +335,7 @@ func (m Model) renderModal(height int) []string {
 			"",
 			stylePrompt.Render("› ") + m.input.View(),
 		}
-	case modalPick:
+	case modalPick, modalRole:
 		title = "Add " + m.modalRel.Label()
 		body = m.pickLines(width)
 	case modalConfirm:
@@ -284,84 +361,129 @@ func (m Model) renderModal(height int) []string {
 	return floatCentre(dialog, boxInnerWidth(m.width), height)
 }
 
-// pickLines renders the candidates an ambiguous term matched.
+// pickOption is one row of a picker, whatever is being chosen.
+type pickOption struct {
+	name   string
+	detail string
+	// tag is a short classifier in a column of its own. Empty everywhere it
+	// would say the same thing on every row, which is most places.
+	tag string
+}
+
+// pickOptions is whatever the open picker is choosing between. Principals and
+// roles are different things, but they are read the same way -- a name, what
+// tells it apart, and sometimes a kind -- so one widget renders both.
+func (m Model) pickOptions() []pickOption {
+	if m.modal == modalRole {
+		out := make([]pickOption, len(m.modalRoles))
+		for i, r := range m.modalRoles {
+			out[i] = pickOption{name: r.DisplayName, detail: r.Description}
+		}
+		return out
+	}
+	out := make([]pickOption, len(m.modalItems))
+	for i, it := range m.modalItems {
+		out[i] = pickOption{
+			name:   it.String("displayName"),
+			detail: principalDetail(it),
+			tag:    principalKind(it),
+		}
+	}
+	return out
+}
+
+// pickPrompt says what is being chosen and why there is a choice at all.
+func (m Model) pickPrompt() string {
+	if m.modal == modalRole {
+		return "Choose the role to grant " + m.modalTarget.String("displayName") + ":"
+	}
+	return fmt.Sprintf("%d matches — choose the %s to add:",
+		len(m.modalItems), m.modalRel.Label())
+}
+
+// pickLines renders the open picker.
 //
-// Each row carries the kind as well as the name, because a member may be a
-// user or a group and "Ada" can be both. The object id is deliberately not
-// here -- it would crowd out the detail that actually tells two people apart,
-// and the confirmation that follows still names it.
+// A principal row carries its kind as well as its name, because a member may
+// be a user or a group and "Ada" can be both. The object id is deliberately
+// not here -- it would crowd out the detail that actually tells two people
+// apart, and the confirmation that follows still names it.
 func (m Model) pickLines(width int) []string {
 	inner := width - 4
+	opts := m.pickOptions()
 	start, end := m.pickWindow()
 
-	lines := []string{
-		styleDim.Render(graph.Truncate(fmt.Sprintf(
-			"%d matches — choose the %s to add:", len(m.modalItems), m.modalRel.Label()), inner)),
-		"",
-	}
+	lines := []string{styleDim.Render(graph.Truncate(m.pickPrompt(), inner)), ""}
+
+	nameWidth, detailWidth, tagWidth := pickColumns(opts, inner)
 	for i := start; i < end; i++ {
-		lines = append(lines, m.pickRow(i, inner))
+		lines = append(lines, m.pickRow(opts[i], i == m.modalCursor, inner, nameWidth, detailWidth, tagWidth))
 	}
-	if hidden := len(m.modalItems) - end + start; hidden > 0 {
+	if hidden := len(opts) - end + start; hidden > 0 {
 		lines = append(lines, styleDim.Render(graph.Truncate(
 			fmt.Sprintf("  … %d more", hidden), inner)))
 	}
 	// A full result set is a truncated one: say so rather than let somebody
-	// conclude the name they wanted is not in the directory.
-	if len(m.modalItems) >= graph.PrincipalSearchLimit {
+	// conclude the name they wanted is not in the directory. Roles are never
+	// truncated -- an application publishes what it publishes.
+	if m.modal == modalPick && len(opts) >= graph.PrincipalSearchLimit {
 		lines = append(lines, "", styleDim.Render(graph.Truncate(fmt.Sprintf(
-			"Showing the first %d — narrow the term to see others.", len(m.modalItems)), inner)))
+			"Showing the first %d — narrow the term to see others.", len(opts)), inner)))
 	}
 	return lines
 }
 
-// pickWindow is the slice of candidates on screen, kept around the cursor so
+// pickColumns fits the columns to their content rather than to fixed shares.
+//
+// The detail beside a name is what actually tells two people called Ada
+// Lovelace apart, so padding the name column past what it needs and cutting
+// the sign-in name to pay for it defeats the point of the list. Widths are
+// taken over every option, not just the visible ones, so nothing shifts about
+// while scrolling, and a tag column that would be empty on every row takes no
+// space at all.
+func pickColumns(opts []pickOption, inner int) (nameWidth, detailWidth, tagWidth int) {
+	widest := func(of func(pickOption) string) int {
+		w := 0
+		for _, o := range opts {
+			w = max(w, lipgloss.Width(of(o)))
+		}
+		return w
+	}
+
+	tagWidth = widest(func(o pickOption) string { return o.tag })
+	body := max(8, inner-2-tagWidth)
+	if tagWidth > 0 {
+		body = max(8, body-1)
+	}
+	nameWidth = max(6, min(widest(func(o pickOption) string { return o.name }), body*3/5))
+	detailWidth = max(0, body-nameWidth-1)
+	return nameWidth, detailWidth, tagWidth
+}
+
+// pickWindow is the slice of options on screen, kept around the cursor so
 // moving past the edge scrolls rather than stops.
 func (m Model) pickWindow() (start, end int) {
-	if len(m.modalItems) <= pickerRows {
-		return 0, len(m.modalItems)
+	n := len(m.pickOptions())
+	if n <= pickerRows {
+		return 0, n
 	}
-	start = min(max(0, m.modalCursor-pickerRows/2), len(m.modalItems)-pickerRows)
+	start = min(max(0, m.modalCursor-pickerRows/2), n-pickerRows)
 	return start, start + pickerRows
 }
 
-// pickRow renders one candidate, fitted to the width before it is styled.
-func (m Model) pickRow(i, width int) string {
-	item := m.modalItems[i]
+// pickRow renders one option, fitted to the width before it is styled.
+func (m Model) pickRow(o pickOption, current bool, width, nameWidth, detailWidth, tagWidth int) string {
+	name := bidi.Display(graph.Truncate(o.name, nameWidth))
+	detail := bidi.Display(graph.Truncate(o.detail, detailWidth))
 
-	// The kind sits in a fixed column on the right so the names above and
-	// below it stay aligned.
-	const kindWidth = 6
-	body := max(8, width-2-kindWidth-1)
-	nameWidth := m.nameColumnWidth(body)
-	detailWidth := max(0, body-nameWidth-1)
-
-	name := bidi.Display(graph.Truncate(item.String("displayName"), nameWidth))
-	detail := bidi.Display(graph.Truncate(principalDetail(item), detailWidth))
-	row := padRight(name, nameWidth) + " " + padRight(detail, detailWidth) +
-		" " + padRight(principalKind(item), kindWidth)
-
-	if i == m.modalCursor {
-		return styleSelectedBase.Render(padRight("› "+row, width))
+	rest := padRight(detail, detailWidth)
+	if tagWidth > 0 {
+		rest += " " + padRight(o.tag, tagWidth)
+	}
+	if current {
+		return styleSelectedBase.Render(padRight("› "+padRight(name, nameWidth)+" "+rest, width))
 	}
 	return styleDim.Render("  ") + styleDetailVal.Render(padRight(name, nameWidth)) +
-		styleDim.Render(" "+padRight(detail, detailWidth)+" "+padRight(principalKind(item), kindWidth))
-}
-
-// nameColumnWidth fits the names to the longest one on offer rather than to a
-// fixed share of the dialog.
-//
-// The detail beside it is what actually tells two people called Ada Lovelace
-// apart, so padding the name column past what it needs and cutting the
-// sign-in name to pay for it defeats the point of the list. The width is
-// taken over every candidate, not just the visible ones, so the column does
-// not shift about while scrolling.
-func (m Model) nameColumnWidth(body int) int {
-	widest := 0
-	for _, it := range m.modalItems {
-		widest = max(widest, lipgloss.Width(it.String("displayName")))
-	}
-	return max(6, min(widest, body*3/5))
+		styleDim.Render(" "+rest)
 }
 
 // principalDetail is whatever tells two objects of the same name apart: a
@@ -425,7 +547,7 @@ func (m Model) confirmLines(width int) []string {
 	// against the wrong one is exactly the mistake this dialog exists to
 	// prevent -- so the id, which is unique, always appears.
 	lines := []string{
-		styleContextVal.Render(what + " " + m.modalRel.Label()),
+		styleContextVal.Render(m.confirmHeading(what)),
 		"",
 		row("Who", identify(who, whoID)),
 	}
@@ -436,7 +558,27 @@ func (m Model) confirmLines(width int) []string {
 		row(preposition, identify(object, m.detailID)),
 		row("", m.detail.Kind.Title()),
 	)
+	// An assignment grants something; saying what is the point of having
+	// asked. A removal takes the role the entry already showed.
+	if m.modalRel == graph.RelAppRoleAssignments && m.modalAction == actionAdd {
+		lines = append(lines, row("Role", m.modalRoleName))
+	}
 	return lines
+}
+
+// confirmHeading says what is about to happen.
+//
+// An app role assignment needs wording of its own: "Delete user or group"
+// reads as deleting the person from the directory, when all that goes is
+// their assignment to this one application.
+func (m Model) confirmHeading(what string) string {
+	if m.modalRel != graph.RelAppRoleAssignments {
+		return what + " " + m.modalRel.Label()
+	}
+	if m.modalAction == actionAdd {
+		return "Assign user or group"
+	}
+	return "Delete assignment"
 }
 
 // identify renders a directory object as its name followed by its unique id.
@@ -460,7 +602,7 @@ func (m Model) modalHints() string {
 		return styleHintKey.Render("y") + styleHintDesc.Render(" yes") +
 			styleDim.Render("   ") +
 			styleHintKey.Render("any other key") + styleHintDesc.Render(" no (default)")
-	case modalPick:
+	case modalPick, modalRole:
 		return styleHintKey.Render("↑↓") + styleHintDesc.Render(" move") +
 			styleDim.Render("   ") +
 			styleHintKey.Render("enter") + styleHintDesc.Render(" choose") +

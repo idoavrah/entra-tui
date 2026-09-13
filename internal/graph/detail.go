@@ -27,6 +27,11 @@ type Field struct {
 	// Value stay populated for everything that reads a field as a pair --
 	// confirmations, for one.
 	Cells []string
+	// RefID identifies this row's own entry in its section's relationship,
+	// when that entry is a different object from the one the row stands for.
+	// An app role assignment is an entity in its own right: removing one
+	// means naming the assignment, not the principal holding it.
+	RefID string
 }
 
 // Empty reports whether the field has nothing worth rendering.
@@ -784,7 +789,7 @@ func exposedScopeFields(o Item, used fieldSet) []Field {
 // assignmentsSection renders the users and groups an enterprise app is
 // assigned to, mapping each assignment back to the role it grants.
 func assignmentsSection(d Detail, o Item) Section {
-	s := Section{Title: "Users and groups", List: true,
+	s := Section{Title: "Users and groups", Relationship: RelAppRoleAssignments, List: true,
 		Columns: []string{"PRINCIPAL", "TYPE", "ROLE"}}
 	if d.AssignmentsErr != nil {
 		s.Note = "Could not read assignments: " + shortError(d.AssignmentsErr)
@@ -809,6 +814,7 @@ func assignmentsSection(d Detail, o Item) Section {
 			ID:    a.String("principalId"),
 			Kind:  principalViewKind(a.String("principalType")),
 			Cells: []string{name, kind, role},
+			RefID: a.ID(),
 		})
 	}
 	if d.AssignmentsTruncated {
@@ -817,20 +823,70 @@ func assignmentsSection(d Detail, o Item) Section {
 	return s
 }
 
-// appRoleNames maps appRole ids to their display names.
-func appRoleNames(o Item) map[string]string {
-	out := map[string]string{}
+// AppRole is one role an enterprise application publishes.
+type AppRole struct {
+	ID          string
+	DisplayName string
+	Description string
+	Enabled     bool
+	// MemberTypes is what may hold the role. Graph spells a user or a group
+	// "User"; a service principal is "Application".
+	MemberTypes []string
+}
+
+// AssignableToPrincipals reports whether a user or a group may be given this
+// role. A disabled role cannot be assigned at all, and one published only for
+// applications is for service principals rather than people.
+func (r AppRole) AssignableToPrincipals() bool {
+	if !r.Enabled {
+		return false
+	}
+	for _, t := range r.MemberTypes {
+		if strings.EqualFold(t, "User") {
+			return true
+		}
+	}
+	return false
+}
+
+// AppRoles lists the roles a service principal publishes, in the order Graph
+// returned them.
+func AppRoles(o Item) []AppRole {
 	entries, _ := o["appRoles"].([]any)
+	out := make([]AppRole, 0, len(entries))
 	for _, entry := range entries {
 		role, ok := entry.(map[string]any)
 		if !ok {
 			continue
 		}
 		id, _ := role["id"].(string)
-		name, _ := role["displayName"].(string)
-		if id != "" {
-			out[id] = name
+		if id == "" {
+			continue
 		}
+		name, _ := role["displayName"].(string)
+		desc, _ := role["description"].(string)
+		enabled, _ := role["isEnabled"].(bool)
+
+		var types []string
+		raw, _ := role["allowedMemberTypes"].([]any)
+		for _, t := range raw {
+			if s, ok := t.(string); ok {
+				types = append(types, s)
+			}
+		}
+		out = append(out, AppRole{
+			ID: id, DisplayName: name, Description: desc,
+			Enabled: enabled, MemberTypes: types,
+		})
+	}
+	return out
+}
+
+// appRoleNames maps appRole ids to their display names.
+func appRoleNames(o Item) map[string]string {
+	out := map[string]string{}
+	for _, r := range AppRoles(o) {
+		out[r.ID] = r.DisplayName
 	}
 	return out
 }

@@ -428,16 +428,28 @@ func (m *Model) applyMembershipChange() tea.Cmd {
 	}
 	who = identify(who, principalID)
 
+	// An app role assignment is deleted by its own id rather than the
+	// principal's: one user can hold several roles on one application.
+	assignmentID := m.modalEntry.refID
+	roleID, roleName := m.modalRoleID, m.modalRoleName
+
 	return func() tea.Msg {
 		reqCtx, cancel := context.WithTimeout(ctx, writeTimeout)
 		defer cancel()
 
 		var err error
 		var summary string
-		if action == actionAdd {
+		switch {
+		case rel == graph.RelAppRoleAssignments && action == actionAdd:
+			err = client.AssignAppRole(reqCtx, objectID, principalID, roleID)
+			summary = fmt.Sprintf("assigned %s (%s)", who, roleName)
+		case rel == graph.RelAppRoleAssignments:
+			err = client.RemoveAppRoleAssignment(reqCtx, objectID, assignmentID)
+			summary = fmt.Sprintf("unassigned %s", who)
+		case action == actionAdd:
 			err = client.AddRef(reqCtx, path, objectID, rel, principalID)
 			summary = fmt.Sprintf("added %s as %s", who, rel.Label())
-		} else {
+		default:
 			err = client.RemoveRef(reqCtx, path, objectID, rel, principalID)
 			summary = fmt.Sprintf("removed %s as %s", who, rel.Label())
 		}

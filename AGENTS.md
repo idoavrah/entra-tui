@@ -147,6 +147,17 @@ written — a device's owners live under `registeredOwners`, and the section
 carries that name. Confirmations name both parties by display name *and*
 object id, and only `y` proceeds.
 
+An enterprise application's "Users and groups" tab is writable too, but it is
+not a `$ref` collection like the others: `appRoleAssignedTo` holds
+`appRoleAssignment` entities, so an add POSTs all three parties (principal,
+resource, role) and a delete names the *assignment's* own id — one user can
+hold several roles on one application, so the principal's id would not say
+which. That id rides on `Field.RefID`. An application publishing assignable
+roles gets a role step with Default Access first and preselected; one
+publishing none skips the step, since a list of one is a question with a
+single answer. The confirmation says "Delete assignment" rather than "Delete
+user or group", which would read as deleting the person from the directory.
+
 An `a` that matches more than one object opens a picker rather than resolving
 the ambiguity or refusing it. Guessing risks adding the wrong person, and
 demanding a narrower term asks the user to solve a problem they cannot see —

@@ -98,13 +98,15 @@ func declaredProperties(items []graph.Item) map[string]bool {
 // ---------------------------------------------------------------- routing
 
 var (
-	countPath   = regexp.MustCompile(`^/v1\.0/(\w+)/\$count$`)
-	refPath     = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)/(\w+)/\$ref$`)
-	unrefPath   = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)/(\w+)/([\w-]+)/\$ref$`)
-	relPath     = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)/(\w+)$`)
-	objectPath  = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)$`)
-	listPath    = regexp.MustCompile(`^/v1\.0/(\w+)$`)
-	filterByApp = regexp.MustCompile(`^appId eq '([^']*)'$`)
+	countPath    = regexp.MustCompile(`^/v1\.0/(\w+)/\$count$`)
+	refPath      = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)/(\w+)/\$ref$`)
+	unrefPath    = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)/(\w+)/([\w-]+)/\$ref$`)
+	relPath      = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)/(\w+)$`)
+	assignPath   = regexp.MustCompile(`^/v1\.0/servicePrincipals/([\w-]+)/appRoleAssignedTo$`)
+	unassignPath = regexp.MustCompile(`^/v1\.0/servicePrincipals/([\w-]+)/appRoleAssignedTo/([\w-]+)$`)
+	objectPath   = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)$`)
+	listPath     = regexp.MustCompile(`^/v1\.0/(\w+)$`)
+	filterByApp  = regexp.MustCompile(`^appId eq '([^']*)'$`)
 )
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +121,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodDelete && unrefPath.MatchString(path):
 		m := unrefPath.FindStringSubmatch(path)
 		s.removeRef(w, m[2], m[3], m[4])
+	// An app role assignment is an entity, not a $ref, so it has routes of
+	// its own -- and they must be matched before the relationship reader
+	// below, which would otherwise treat the POST as a list.
+	case r.Method == http.MethodPost && assignPath.MatchString(path):
+		s.addAssignment(w, r, assignPath.FindStringSubmatch(path)[1])
+	case r.Method == http.MethodDelete && unassignPath.MatchString(path):
+		m := unassignPath.FindStringSubmatch(path)
+		s.removeAssignment(w, m[1], m[2])
 	case countPath.MatchString(path):
 		s.count(w, r, countPath.FindStringSubmatch(path)[1])
 	case relPath.MatchString(path):
@@ -325,6 +335,72 @@ func (s *Server) removeRef(w http.ResponseWriter, id, rel, principalID string) {
 		}
 	}
 	writeError(w, http.StatusNotFound, "Request_ResourceNotFound", "not a member")
+}
+
+// addAssignment assigns a principal to an enterprise application, the way
+// Graph does: a POST carrying all three parties rather than a reference.
+func (s *Server) addAssignment(w http.ResponseWriter, r *http.Request, spID string) {
+	body, _ := io.ReadAll(r.Body)
+	var req struct {
+		PrincipalID string `json:"principalId"`
+		ResourceID  string `json:"resourceId"`
+		AppRoleID   string `json:"appRoleId"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || req.PrincipalID == "" {
+		writeError(w, http.StatusBadRequest, "Request_BadRequest", "missing principalId")
+		return
+	}
+	if req.ResourceID != spID {
+		writeError(w, http.StatusBadRequest, "Request_BadRequest",
+			"resourceId does not match the application being assigned to")
+		return
+	}
+	object := s.find(req.PrincipalID)
+	if object == nil {
+		writeError(w, http.StatusNotFound, "Request_ResourceNotFound", "no such principal")
+		return
+	}
+
+	// Graph rejects the same principal in the same role twice, and the
+	// interface relies on hearing about it.
+	for _, existing := range s.data.Assignments[spID] {
+		if existing.String("principalId") == req.PrincipalID &&
+			existing.String("appRoleId") == req.AppRoleID {
+			writeError(w, http.StatusBadRequest, "Request_BadRequest",
+				"Permission being assigned already exists on the object.")
+			return
+		}
+	}
+
+	kind := "User"
+	if graph.ObjectViewKind(object) == graph.KindGroups {
+		kind = "Group"
+	}
+	assignment := graph.Item{
+		"id":                   fmt.Sprintf("ar-%s-%d", spID, len(s.data.Assignments[spID])+1),
+		"principalId":          req.PrincipalID,
+		"principalDisplayName": object.String("displayName"),
+		"principalType":        kind,
+		"appRoleId":            req.AppRoleID,
+	}
+	s.data.Assignments[spID] = append(s.data.Assignments[spID], assignment)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(assignment)
+}
+
+// removeAssignment deletes one assignment by its own id.
+func (s *Server) removeAssignment(w http.ResponseWriter, spID, assignmentID string) {
+	for i, existing := range s.data.Assignments[spID] {
+		if existing.ID() == assignmentID {
+			s.data.Assignments[spID] = append(
+				s.data.Assignments[spID][:i], s.data.Assignments[spID][i+1:]...)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "Request_ResourceNotFound", "no such assignment")
 }
 
 // find locates any object by id, across every collection.

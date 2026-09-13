@@ -150,19 +150,140 @@ func TestRefArgumentsAreValidated(t *testing.T) {
 
 func TestRelationshipLabels(t *testing.T) {
 	for rel, want := range map[Relationship]string{
-		RelMembers:          "member",
-		RelOwners:           "owner",
-		RelRegisteredOwners: "registered owner",
+		RelMembers:            "member",
+		RelOwners:             "owner",
+		RelRegisteredOwners:   "registered owner",
+		RelAppRoleAssignments: "user or group",
 	} {
 		if got := rel.Label(); got != want {
 			t.Errorf("%s.Label() = %q, want %q", rel, got, want)
 		}
 	}
+	// Not every label pluralises by adding an "s".
+	if got := RelAppRoleAssignments.Plural(); got != "users or groups" {
+		t.Errorf("Plural() = %q, want %q", got, "users or groups")
+	}
+	if got := RelMembers.Plural(); got != "members" {
+		t.Errorf("Plural() = %q, want %q", got, "members")
+	}
+}
+
+func TestAssignAppRolePostsTheWholeAssignment(t *testing.T) {
+	// appRoleAssignedTo holds entities rather than references, so unlike a
+	// $ref the body has to name all three parties.
+	c, seen := recordingClient(t, http.StatusCreated)
+
+	if err := c.AssignAppRole(context.Background(), "s1", "u1", "role-live-ops"); err != nil {
+		t.Fatalf("AssignAppRole: %v", err)
+	}
+	got := (*seen)[0]
+	if got.method != http.MethodPost {
+		t.Errorf("method = %s, want POST", got.method)
+	}
+	if want := "/v1.0/servicePrincipals/s1/appRoleAssignedTo"; got.path != want {
+		t.Errorf("path = %q, want %q", got.path, want)
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal([]byte(got.body), &body); err != nil {
+		t.Fatalf("body is not JSON: %v", err)
+	}
+	for key, want := range map[string]string{
+		"principalId": "u1", "resourceId": "s1", "appRoleId": "role-live-ops",
+	} {
+		if body[key] != want {
+			t.Errorf("%s = %q, want %q", key, body[key], want)
+		}
+	}
+}
+
+func TestAssignAppRoleFallsBackToDefaultAccess(t *testing.T) {
+	// An application publishing no roles can grant nothing else, so an empty
+	// role must become the all-zero id rather than an empty string Graph
+	// would reject.
+	c, seen := recordingClient(t, http.StatusCreated)
+
+	if err := c.AssignAppRole(context.Background(), "s1", "u1", ""); err != nil {
+		t.Fatalf("AssignAppRole: %v", err)
+	}
+	var body map[string]string
+	if err := json.Unmarshal([]byte((*seen)[0].body), &body); err != nil {
+		t.Fatalf("body is not JSON: %v", err)
+	}
+	if body["appRoleId"] != DefaultAppRoleID {
+		t.Errorf("appRoleId = %q, want the default access role", body["appRoleId"])
+	}
+}
+
+func TestRemoveAppRoleAssignmentUsesTheAssignmentID(t *testing.T) {
+	// One user can hold several roles on one application, so the assignment
+	// is what gets deleted -- not the principal.
+	c, seen := recordingClient(t, http.StatusNoContent)
+
+	if err := c.RemoveAppRoleAssignment(context.Background(), "s1", "ar-1"); err != nil {
+		t.Fatalf("RemoveAppRoleAssignment: %v", err)
+	}
+	got := (*seen)[0]
+	if got.method != http.MethodDelete {
+		t.Errorf("method = %s, want DELETE", got.method)
+	}
+	if want := "/v1.0/servicePrincipals/s1/appRoleAssignedTo/ar-1"; got.path != want {
+		t.Errorf("path = %q, want %q", got.path, want)
+	}
+}
+
+func TestAppRoleWritesValidateTheirIDs(t *testing.T) {
+	// The same guard as the $ref writes: an id with a slash in it did not
+	// come from Graph, and would change which URL was called.
+	c, seen := recordingClient(t, http.StatusCreated)
+
+	if err := c.AssignAppRole(context.Background(), "s1", "../../users", "r1"); err == nil {
+		t.Error("AssignAppRole accepted a principal id with a path in it")
+	}
+	if err := c.AssignAppRole(context.Background(), "s1", "u1", "r1?x=1"); err == nil {
+		t.Error("AssignAppRole accepted a role id with a query in it")
+	}
+	if err := c.RemoveAppRoleAssignment(context.Background(), "s1", ""); err == nil {
+		t.Error("RemoveAppRoleAssignment accepted an empty assignment id")
+	}
+	if len(*seen) != 0 {
+		t.Errorf("%d requests were sent, want none to leave the process", len(*seen))
+	}
+}
+
+func TestAppRolesReadsWhatCanBeAssigned(t *testing.T) {
+	sp := Item{"appRoles": []any{
+		map[string]any{"id": "a", "displayName": "Live Ops", "description": "d",
+			"isEnabled": true, "allowedMemberTypes": []any{"User"}},
+		map[string]any{"id": "b", "displayName": "Retired",
+			"isEnabled": false, "allowedMemberTypes": []any{"User"}},
+		map[string]any{"id": "c", "displayName": "Daemon",
+			"isEnabled": true, "allowedMemberTypes": []any{"Application"}},
+		map[string]any{"displayName": "No id at all", "isEnabled": true},
+	}}
+
+	roles := AppRoles(sp)
+	if len(roles) != 3 {
+		t.Fatalf("got %d roles, want the three with ids", len(roles))
+	}
+	if !roles[0].AssignableToPrincipals() {
+		t.Error("an enabled role allowing users is not assignable")
+	}
+	if roles[1].AssignableToPrincipals() {
+		t.Error("a disabled role is assignable")
+	}
+	if roles[2].AssignableToPrincipals() {
+		t.Error("an application-only role is offered to people")
+	}
+	if roles[0].Description != "d" {
+		t.Errorf("description = %q, want it carried through for the picker", roles[0].Description)
+	}
 }
 
 func TestFindPrincipalsSearchesGroupsOnlyForMembers(t *testing.T) {
-	// An owner must be a user; a member may also be a group. Searching
-	// groups for an owner would offer a choice that cannot be applied.
+	// An owner must be a user; a member or an assignment may also be a
+	// group. Searching groups for an owner would offer a choice that cannot
+	// be applied.
 	var paths []string
 	mux := http.NewServeMux()
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -180,12 +301,14 @@ func TestFindPrincipalsSearchesGroupsOnlyForMembers(t *testing.T) {
 		t.Errorf("owner lookup hit %v, want users only", paths)
 	}
 
-	paths = nil
-	if _, err := c.FindPrincipals(context.Background(), RelMembers, "ada"); err != nil {
-		t.Fatalf("FindPrincipals: %v", err)
-	}
-	if len(paths) != 2 {
-		t.Errorf("member lookup hit %v, want users and groups", paths)
+	for _, rel := range []Relationship{RelMembers, RelAppRoleAssignments} {
+		paths = nil
+		if _, err := c.FindPrincipals(context.Background(), rel, "ada"); err != nil {
+			t.Fatalf("FindPrincipals(%s): %v", rel, err)
+		}
+		if len(paths) != 2 {
+			t.Errorf("%s lookup hit %v, want users and groups", rel, paths)
+		}
 	}
 }
 
