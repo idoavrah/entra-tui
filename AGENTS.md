@@ -144,7 +144,10 @@ from the `x` jump.
 
 `a` and `d` act on the tab in front, which also settles which collection is
 written — a device's owners live under `registeredOwners`, and the section
-carries that name. Confirmations name both parties by display name *and*
+carries that name. The path comes from `detailRes`, the pane's own resource,
+never from `coll.res`: following a link out of a user's Groups tab leaves the
+browse collection on users while the pane shows a group, and a write belongs
+to what is in front of the reader. Confirmations name both parties by display name *and*
 object id, and only `y` proceeds.
 
 An enterprise application's "Users and groups" tab is writable too, but it is

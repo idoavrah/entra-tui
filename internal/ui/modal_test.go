@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -796,5 +798,105 @@ func TestAssigningSaysAssign(t *testing.T) {
 	}})
 	if !strings.Contains(m.View(), "Assign user or group") {
 		t.Error("the confirmation does not say the principal is being assigned")
+	}
+}
+
+// recordingModel is a model whose Graph client reports every request path it
+// is asked to make, so a write can be checked for where it actually went.
+func recordingModel(t *testing.T) (Model, *[]string) {
+	t.Helper()
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+
+	res, _ := graph.Lookup("users")
+	m := New(t.Context(), Options{
+		GraphURL: srv.URL + "/v1.0", PageSize: 100, Resource: res, CacheDir: t.TempDir(),
+		Client:   graph.New(stubProvider{}, graph.WithBaseURL(srv.URL+"/v1.0"), graph.WithHTTPClient(srv.Client())),
+		Identity: stubProvider{}.Identity(),
+	})
+	m = send(t, m, tea.WindowSizeMsg{Width: 150, Height: 40})
+	next, _ := m.openResource(res)
+	m = next.(Model)
+	m.loading = false
+	return m, &seen
+}
+
+func TestAWriteGoesToTheObjectInThePaneNotTheCollectionBehindIt(t *testing.T) {
+	// Opening a user and following a link to one of their groups leaves the
+	// browse collection on users while the pane shows a group. A write has
+	// to follow the pane: /groups/g1/members, never /users/g1/members.
+	m, seen := recordingModel(t)
+
+	m = send(t, m, pageMsg{gen: m.gen, page: &graph.Page{Items: []graph.Item{
+		{"id": "u1", "displayName": "Ada"},
+	}}})
+	m = send(t, m, press("enter"))
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:   graph.KindUsers,
+		Object: graph.Item{"id": "u1", "displayName": "Ada", "userPrincipalName": "ada@x.com"},
+		Groups: []graph.Item{{"id": "g1", "displayName": "Research", "securityEnabled": true}},
+	}})
+
+	// Follow the group out of the user's Groups tab.
+	m = tabTitled(t, m, "Groups")
+	m = send(t, m, press("enter"))
+	m = send(t, m, detailMsg{gen: m.gen, detail: graph.Detail{
+		Kind:    graph.KindGroups,
+		Object:  graph.Item{"id": "g1", "displayName": "Research", "securityEnabled": true},
+		Members: []graph.Item{{"id": "u2", "displayName": "Grace", "userPrincipalName": "g@x.com"}},
+	}})
+	if m.detailRes.Kind != graph.KindGroups {
+		t.Fatalf("detailRes = %s, want the pane to be showing a group", m.detailRes.Kind)
+	}
+	if m.coll.res.Kind != graph.KindUsers {
+		t.Fatalf("coll = %s, want the browse collection still on users", m.coll.res.Kind)
+	}
+
+	// Add a member to the group in front, and confirm it.
+	m = tabTitled(t, m, "Members")
+	m = send(t, m, press("a"))
+	m = typeKeys(t, m, "bram")
+	m = send(t, m, press("enter"))
+	m = send(t, m, principalsMsg{gen: m.gen, term: "bram", items: []graph.Item{
+		{"id": "u7", "displayName": "Bram", "userPrincipalName": "bram@x.com"},
+	}})
+	if m.modal != modalConfirm {
+		t.Fatalf("modal = %v, want the confirmation", m.modal)
+	}
+
+	*seen = nil
+	cmd := m.applyMembershipChange()
+	if cmd == nil {
+		t.Fatal("confirming produced no write")
+	}
+	cmd()
+
+	if len(*seen) != 1 {
+		t.Fatalf("requests = %v, want exactly one write", *seen)
+	}
+	if want := "POST /v1.0/groups/g1/members/$ref"; (*seen)[0] != want {
+		t.Errorf("write went to %q, want %q", (*seen)[0], want)
+	}
+
+	// The removal shares the same path, so it is wrong in the same way when
+	// the collection stands in for the pane.
+	m = m.closeModal()
+	m = tabTitled(t, m, "Members")
+	m = send(t, m, press("d"))
+	if m.modal != modalConfirm || m.modalAction != actionRemove {
+		t.Fatalf("modal = %v action = %v, want a delete confirmation", m.modal, m.modalAction)
+	}
+
+	*seen = nil
+	m.applyMembershipChange()()
+	if len(*seen) != 1 {
+		t.Fatalf("requests = %v, want exactly one write", *seen)
+	}
+	if want := "DELETE /v1.0/groups/g1/members/u2/$ref"; (*seen)[0] != want {
+		t.Errorf("removal went to %q, want %q", (*seen)[0], want)
 	}
 }

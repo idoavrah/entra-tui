@@ -413,7 +413,10 @@ func (m *Model) applyMembershipChange() tea.Cmd {
 	gen := m.gen
 	client := m.client
 	ctx := m.ctx
-	path := m.coll.res.Path
+	// The pane, not the collection behind it. Following a link out of a
+	// user's Groups tab leaves the browse collection on users while the pane
+	// shows a group, and the write belongs to what is in front of the reader.
+	path := m.detailRes.Path
 	objectID := m.detailID
 	rel := m.modalRel
 	action := m.modalAction
