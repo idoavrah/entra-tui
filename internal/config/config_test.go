@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -97,6 +98,30 @@ func TestTheOldSignInFlagsAreGone(t *testing.T) {
 		if _, err := Load([]string{flag, "whatever"}, env(nil), io.Discard); err == nil {
 			t.Errorf("Load still accepts %s", flag)
 		}
+	}
+}
+
+func TestBidiModeResolution(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		vars map[string]string
+		want bidi.Mode
+	}{
+		{"default", nil, nil, bidi.ModeAuto},
+		{"environment", nil, map[string]string{EnvBidi: "off"}, bidi.ModeOff},
+		{"flag beats environment", []string{"-bidi", "on"}, map[string]string{EnvBidi: "off"}, bidi.ModeOn},
+	} {
+		cfg, err := Load(tc.args, env(tc.vars), io.Discard)
+		if err != nil {
+			t.Fatalf("%s: Load: %v", tc.name, err)
+		}
+		if cfg.Bidi != tc.want {
+			t.Errorf("%s: Bidi = %q, want %q", tc.name, cfg.Bidi, tc.want)
+		}
+	}
+	if _, err := Load([]string{"-bidi", "rtl"}, env(nil), io.Discard); err == nil {
+		t.Error("Load accepted a bidi mode that is not auto, on or off")
 	}
 }
 

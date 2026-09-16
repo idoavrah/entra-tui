@@ -8,7 +8,7 @@ the tool is; this says how it is built and which decisions are load-bearing.
 ```
 cmd/entra-tui/       parse config, start the TUI
 internal/auth/       borrows the Graph token from an `az login` session
-internal/bidi/       right-to-left reordering for non-bidi terminals
+internal/bidi/       right-to-left reordering, and whether this terminal needs it
 internal/config/     flag + environment resolution
 internal/demo/       generated directory and an in-process Graph stand-in
 internal/graph/      paged Graph client, resources, detail sections
@@ -148,6 +148,7 @@ from the `x` jump.
 | `c` (or `y`) | Copy object id (OSC 52, works over SSH) |
 | `a` | Add to the list tab in front |
 | `d` | Delete the selected row from it |
+| `b` | Right-to-left text: reordered by entra-tui ⇄ left to the terminal |
 | `?` | Help |
 | `q` | Quit |
 
@@ -205,6 +206,41 @@ reverse, paired brackets mirror, embedded numbers keep their reading order
 Cells stay left-aligned; reordering is what makes the text readable, and
 right-alignment only cost a ragged left edge in a dense table. **The
 underlying data is never modified**, only what is drawn.
+
+Some terminals *do* reorder — iTerm2 from 3.6, Terminal.app, Konsole, mlterm —
+and reordering for one of those reverses the text a second time, so every
+Hebrew word reads backwards. Reordering is therefore a switch
+(`bidi.SetReordering`), process-wide because it describes the one terminal
+everything is drawn on. `-bidi` / `ENTRA_TUI_BIDI` sets it: `on`, `off`, or
+`auto`, which goes by `TERM_PROGRAM`, `LC_TERMINAL` (iTerm2 sets it, and it
+survives ssh and tmux), `KONSOLE_VERSION` and `MLTERM`. It cannot do better
+than a name: a cursor position report is in logical columns either way, so no
+probe tells a reordering terminal from one that does not. A name is wrong for
+anybody who changed the terminal's own setting, which is why `b` switches it
+at runtime and the help screen gives the launch-time reason.
+
+`b` also remembers the choice, in `settings.json` under the user *config*
+directory (`config.Settings`) — not the cache, which the system may clear.
+It is keyed by `bidi.TerminalName`, without the version, because one person
+can need opposite answers in iTerm2 and VS Code's terminal, and an upgrade
+must not forget it. Precedence: `-bidi on|off` / `ENTRA_TUI_BIDI`, then the
+remembered choice, then the guess. **A guess is never written down:** a choice
+that agrees with it removes the entry instead, so a release that fixes a wrong
+guess still reaches everyone who never overrode it, and pressing `b` back is
+how a remembered choice is undone. `ui` never touches the file; `main` hands
+it `Options.RememberBidi`, which tests leave nil.
+
+Terminals implementing the "BiDi in Terminal Emulators" recommendation (VTE)
+are told the choice with ECMA-48's BDSM (`CSI 8 l` when entra-tui reorders,
+`CSI 8 h` when it does not), so on those it is exact. The sequence is written
+to the terminal by a command, at start and on every switch, never inside a
+frame — a frame would carry it into every golden screen. `main` writes
+`CSI 8 h`, the terminal's default, on the way out. Other terminals ignore a
+mode they do not know.
+
+Every string that can hold a name goes through `bidi.Display` where it is
+drawn, not where it is built, or switching would leave it behind. That includes
+the flash line and the role picker's prompt, both of which once missed it.
 
 ## When Graph rejects a property
 

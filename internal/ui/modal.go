@@ -272,7 +272,7 @@ func (m Model) handlePrincipals(msg principalsMsg) (tea.Model, tea.Cmd) {
 	case msg.err != nil:
 		m.modalError = "Search failed: " + msg.err.Error()
 	case len(msg.items) == 0:
-		m.modalError = fmt.Sprintf("Nothing in the directory matches %q.", bidi.Display(msg.term))
+		m.modalError = fmt.Sprintf("Nothing in the directory matches %q.", msg.term)
 	case len(msg.items) > 1:
 		// Adding the wrong person is not a risk a guess should take, so an
 		// ambiguous term is never resolved by picking the first. It is handed
@@ -346,7 +346,9 @@ func (m Model) renderModal(height int) []string {
 	if m.modalError != "" {
 		body = append(body, "")
 		for _, l := range strings.Split(m.modalError, "\n") {
-			for _, wrapped := range wrapLines(l, width-4) {
+			// Reordered here rather than when the message was built: the
+			// term and Graph's error text can both carry a name.
+			for _, wrapped := range wrapLines(bidi.Display(l), width-4) {
 				body = append(body, styleErr.Render(wrapped))
 			}
 		}
@@ -412,7 +414,9 @@ func (m Model) pickLines(width int) []string {
 	opts := m.pickOptions()
 	start, end := m.pickWindow()
 
-	lines := []string{styleDim.Render(graph.Truncate(m.pickPrompt(), inner)), ""}
+	// The prompt names the application being assigned to, which is as likely
+	// to be Hebrew as any other name.
+	lines := []string{styleDim.Render(bidi.Display(graph.Truncate(m.pickPrompt(), inner))), ""}
 
 	nameWidth, detailWidth, tagWidth := pickColumns(opts, inner)
 	for i := start; i < end; i++ {

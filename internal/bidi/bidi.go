@@ -8,6 +8,10 @@
 // dumb terminal needs, so that Hebrew data reads correctly while staying
 // inside the column it belongs to.
 //
+// Some terminals do apply it, and reordering for one of those reverses the
+// text a second time. SetReordering switches this package off for them; see
+// Mode for how that is decided.
+//
 // The implementation is a deliberate simplification of UAX #9: it resolves
 // neutral characters from their surrounding strong context, reverses
 // right-to-left runs, and mirrors paired punctuation. It does not implement
@@ -108,9 +112,10 @@ var mirrored = map[rune]rune{
 
 // Display converts logical-order text into the visual order a terminal
 // without bidi support must be handed. Text with no right-to-left content is
-// returned unchanged, so this is safe to call on every cell.
+// returned unchanged, so this is safe to call on every cell -- and so is
+// everything while reordering is switched off.
 func Display(s string) string {
-	if !Contains(s) {
+	if !Reordering() || !Contains(s) {
 		return s
 	}
 

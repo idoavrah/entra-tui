@@ -22,6 +22,7 @@ Status   connected                              q quit    pg↑↓ page         
 │  :           command prompt            c           copy object id                                                                                                                          │
 │                                        a           add to the list in front                                                                                                                │
 │                                        d           delete the selected row                                                                                                                 │
+│                                        b           right-to-left: entra-tui ⇄ terminal                                                                                                     │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
 │Search runs against Microsoft Graph, not just the rows on screen.                                                                                                                           │
@@ -31,8 +32,7 @@ Status   connected                              q quit    pg↑↓ page         
 │a adds to whichever list is in front, so it means member on one tab and owner                                                                                                               │
 │on the next; d deletes the row under the cursor from that same list.                                                                                                                        │
 │entra-tui reads the directory and edits only members and owners.                                                                                                                            │
-│                                                                                                                                                                                            │
-│                                                                                                                                                                                            │
+│Right-to-left text is reordered by entra-tui; b switches it.                                                                                                                                │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │

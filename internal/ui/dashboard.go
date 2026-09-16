@@ -68,6 +68,8 @@ func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openPrompt(modeCommand, "")
 	case key.Matches(msg, keys.Refresh):
 		return m, m.loadTotals()
+	case key.Matches(msg, keys.Bidi):
+		return m.toggleBidi()
 
 	// The tiles are a grid, so the cursor moves in two dimensions.
 	case key.Matches(msg, keys.Up):

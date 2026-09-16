@@ -69,9 +69,31 @@ permissions it requests and the rest of the security model.
 | `-demo` | — | off — runs against a generated directory |
 | `-nodelay` | — | off — opens a pane before it has loaded |
 | `-d`, `-disable-usage-tracking` | `ENTRA_TUI_DISABLE_USAGE_TRACKING` | off — tracking is on by default |
+| `-bidi` | `ENTRA_TUI_BIDI` | `auto` — see [Hebrew and Arabic](#hebrew-and-arabic) |
 | `-version` | — | print the build stamp and exit |
 
 `-graph-url` exists for sovereign clouds (US Gov, China, …).
+
+## Hebrew and Arabic
+
+Right-to-left names have to be reordered exactly once: by entra-tui or by the
+terminal. If both do it, or neither does, they read backwards.
+
+| `-bidi` | Who reorders |
+| --- | --- |
+| `auto` | the terminal, if it is one known to (iTerm2 3.6 and later, Terminal.app, Konsole, mlterm); otherwise entra-tui |
+| `on` | entra-tui — for terminals that draw text in the order it arrives |
+| `off` | the terminal |
+
+A terminal's own setting can make `auto` guess wrong. Press `b` to switch
+while running. The choice is remembered for that terminal — iTerm2 and VS
+Code's terminal each keep their own — and used under `auto` from then on;
+`-bidi on` or `off` still wins. Pressing `b` back to what `auto` would pick
+forgets it. The help screen (`?`) says which way it is set and why.
+
+Choices are kept in `settings.json` under the user config directory
+(`~/Library/Application Support/entra-tui` on macOS, `~/.config/entra-tui` on
+Linux, `%AppData%\entra-tui` on Windows).
 
 ## Usage tracking
 

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
 )
 
@@ -28,6 +29,9 @@ type Config struct {
 	// DisableUsageTracking turns off anonymous usage tracking and the update
 	// check. Tracking is on by default; this is the opt-out.
 	DisableUsageTracking bool
+	// Bidi is who reorders right-to-left text: entra-tui, the terminal, or
+	// whichever the environment suggests.
+	Bidi bidi.Mode
 	// Version asks for the build stamp and nothing else.
 	Version bool
 }
@@ -39,6 +43,7 @@ const (
 	EnvGraphURL = "ENTRA_TUI_GRAPH_URL"
 	// EnvDisableUsageTracking opts out of usage tracking, the same as -d.
 	EnvDisableUsageTracking = "ENTRA_TUI_DISABLE_USAGE_TRACKING"
+	EnvBidi                 = "ENTRA_TUI_BIDI"
 )
 
 // isTruthy reads an opt-out environment variable. Anything set to something
@@ -77,6 +82,7 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 		nodelay  = fs.Bool("nodelay", false, "open an object's pane before it has loaded, filling the rest in afterwards")
 		notrack  = fs.Bool("disable-usage-tracking", false, "turn off anonymous usage tracking and the update check (default enabled)")
 		notrackD = fs.Bool("d", false, "shorthand for -disable-usage-tracking")
+		bidiMode = fs.String("bidi", "", "who reorders right-to-left text: auto, on (entra-tui) or off (the terminal) (default auto)")
 		version  = fs.Bool("version", false, "print the build version and exit")
 	)
 
@@ -102,6 +108,11 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	cfg.DisableUsageTracking = *notrack || *notrackD ||
 		isTruthy(getenv(EnvDisableUsageTracking)) || cfg.Demo
 	cfg.Version = *version
+
+	cfg.Bidi, err = bidi.ParseMode(firstNonEmpty(*bidiMode, getenv(EnvBidi)))
+	if err != nil {
+		return Config{}, err
+	}
 
 	res, ok := graph.Lookup(*resource)
 	if !ok {
@@ -156,12 +167,17 @@ Environment:
   ENTRA_TUI_PAGE_SIZE   same as -page-size
   ENTRA_TUI_GRAPH_URL   same as -graph-url
   ENTRA_TUI_DISABLE_USAGE_TRACKING  same as -d
+  ENTRA_TUI_BIDI        same as -bidi
 
 Sign-in is the Azure CLI and nothing else: run "az login" first, and
 entra-tui borrows that session's Microsoft Graph token.
 
 Use -demo to explore the interface against a generated directory, with no
 tenant, no sign-in and no network.
+
+Hebrew and Arabic read backwards if both entra-tui and the terminal reorder
+them, or if neither does. -bidi auto guesses from the terminal's name; b
+switches it while running and remembers the choice for that terminal.
 
 entra-tui works with your own delegated permissions. It reads the directory
 and can add and remove members and owners; it creates, deletes and renames

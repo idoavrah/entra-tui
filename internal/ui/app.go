@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/idoavrah/entra-tui/internal/auth"
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/graph"
 	"github.com/idoavrah/entra-tui/internal/telemetry"
 )
@@ -63,6 +65,19 @@ type Options struct {
 	// Telemetry records what kind of thing was done, never what it was done
 	// to. Nil is treated as opted out.
 	Telemetry *telemetry.Client
+	// BidiReason says how right-to-left reordering was chosen at launch, for
+	// the help screen: a reader whose Hebrew is backwards needs to know
+	// whether it was a guess.
+	BidiReason string
+	// TerminalOut receives the bidi mode sequence for terminals that take
+	// one. Nil sends nothing, which is what tests want.
+	TerminalOut io.Writer
+	// Terminal is what the terminal calls itself, which is what a
+	// right-to-left choice is remembered against.
+	Terminal string
+	// RememberBidi keeps a right-to-left choice for the next launch in this
+	// terminal. Nil remembers nothing, which is what tests want.
+	RememberBidi func(reorder bool) error
 
 	// Client and Identity bypass sign-in when supplied, which is how demo
 	// mode runs with no tenant behind it.
@@ -220,7 +235,7 @@ func New(ctx context.Context, opts Options) Model {
 
 // Init starts the spinner and the background count of every collection.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, m.loadTotals())
+	return tea.Batch(m.spin.Tick, m.loadTotals(), m.announceBidi())
 }
 
 // Update is the Bubble Tea event loop.
@@ -479,6 +494,8 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Copy):
 		return m.copyCurrentID()
+	case key.Matches(msg, keys.Bidi):
+		return m.toggleBidi()
 
 	case key.Matches(msg, keys.Up):
 		return m.moveCursor(-1)
@@ -568,12 +585,67 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.jumpToPair()
 	case key.Matches(msg, keys.Copy):
 		return m.copyCurrentID()
+	case key.Matches(msg, keys.Bidi):
+		return m.toggleBidi()
 	case key.Matches(msg, keys.Help):
 		m.helpReturn = m.screen
 		m.screen = screenHelp
 		return m, nil
 	}
 	return m, nil
+}
+
+// toggleBidi hands right-to-left reordering between entra-tui and the
+// terminal.
+//
+// Whether a terminal reorders cannot be asked, only guessed from its name,
+// and a guess is wrong for anybody who changed the terminal's setting. The
+// reader can see at a glance which way reads correctly, so they get the
+// last word without having to quit and relaunch with a flag.
+func (m Model) toggleBidi() (tea.Model, tea.Cmd) {
+	bidi.SetReordering(!bidi.Reordering())
+	m.track("switched right-to-left handling", telemetry.Properties{"to": bidiOwner()})
+	if m.screen == screenDetail {
+		// The pane's properties are rendered into the viewport ahead of
+		// time, so they have to be drawn again to pick the change up.
+		m = m.refreshDetail()
+	}
+	return m, tea.Batch(m.flashFor("right-to-left text: "+bidiOwner()+m.rememberBidi()), m.announceBidi())
+}
+
+// rememberBidi keeps the choice for the next launch and says so, or says why
+// not. Somebody who switched it expects to be asked once, not every launch.
+func (m Model) rememberBidi() string {
+	if m.opts.RememberBidi == nil {
+		return ""
+	}
+	if err := m.opts.RememberBidi(bidi.Reordering()); err != nil {
+		return " · not remembered: " + err.Error()
+	}
+	return " · remembered for " + m.opts.Terminal
+}
+
+// bidiOwner says who is reordering right-to-left text.
+func bidiOwner() string {
+	if bidi.Reordering() {
+		return "reordered by entra-tui"
+	}
+	return "left to the terminal"
+}
+
+// announceBidi tells a terminal that takes the bidi mode sequence who is
+// reordering. It goes out as a command rather than inside a frame, because a
+// frame carrying it would also carry it into every golden screen.
+func (m Model) announceBidi() tea.Cmd {
+	out := m.opts.TerminalOut
+	if out == nil {
+		return nil
+	}
+	seq := bidi.TerminalMode()
+	return func() tea.Msg {
+		_, _ = io.WriteString(out, seq)
+		return nil
+	}
 }
 
 // track records an event, if tracking is on at all. It is a method so every

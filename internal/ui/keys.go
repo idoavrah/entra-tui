@@ -24,6 +24,7 @@ type keyMap struct {
 	Pair      key.Binding
 	Add       key.Binding
 	Delete    key.Binding
+	Bidi      key.Binding
 	Help      key.Binding
 	Quit      key.Binding
 }
@@ -56,6 +57,9 @@ var keys = keyMap{
 	// which is the list the user is looking at and pointing into.
 	Add:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete selected")),
-	Help:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+	// b switches who reorders right-to-left text, for the terminal the
+	// launch-time guess got wrong.
+	Bidi: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "right-to-left")),
+	Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }

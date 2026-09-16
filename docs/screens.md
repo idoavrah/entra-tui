@@ -55,6 +55,7 @@ Both parties named by display name *and* object id. Only `y` proceeds.
 ## Right-to-left names
 
 Reordered for terminals that do not implement the bidirectional algorithm,
-and still left-aligned like every other cell.
+and still left-aligned like every other cell. For a terminal that does it
+itself, `-bidi off` or `b` leaves it to the terminal.
 
 ![Hebrew names](images/right-to-left.png)

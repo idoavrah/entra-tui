@@ -17,6 +17,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/idoavrah/entra-tui/internal/auth"
+	"github.com/idoavrah/entra-tui/internal/bidi"
 	"github.com/idoavrah/entra-tui/internal/config"
 	"github.com/idoavrah/entra-tui/internal/demo"
 	"github.com/idoavrah/entra-tui/internal/graph"
@@ -82,13 +83,23 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	settings := config.LoadSettings(config.SettingsPath(""))
+	reorder, bidiReason := settings.ResolveBidi(cfg.Bidi, os.Getenv)
+	bidi.SetReordering(reorder)
+
 	opts := ui.Options{
-		GraphURL:  cfg.GraphURL,
-		PageSize:  cfg.PageSize,
-		Resource:  cfg.Resource,
-		NoDelay:   cfg.NoDelay,
-		Version:   version,
-		Telemetry: track,
+		GraphURL:    cfg.GraphURL,
+		PageSize:    cfg.PageSize,
+		Resource:    cfg.Resource,
+		NoDelay:     cfg.NoDelay,
+		Version:     version,
+		Telemetry:   track,
+		BidiReason:  bidiReason,
+		TerminalOut: os.Stdout,
+		Terminal:    bidi.TerminalName(os.Getenv),
+		RememberBidi: func(reorder bool) error {
+			return settings.RememberBidi(reorder, os.Getenv)
+		},
 	}
 
 	// Demo mode swaps the tenant for a generated directory served in
@@ -121,7 +132,11 @@ func run(args []string) error {
 	}
 
 	program := tea.NewProgram(ui.New(ctx, opts), tea.WithAltScreen(), tea.WithContext(ctx))
-	if _, err := program.Run(); err != nil {
+	_, err = program.Run()
+	// Hand right-to-left text back to the terminal, which is its default,
+	// whichever way it was switched while running.
+	fmt.Fprint(os.Stdout, bidi.ImplicitMode)
+	if err != nil {
 		// A cancelled context is the user pressing Ctrl-C, not a failure.
 		if errors.Is(err, tea.ErrProgramKilled) || errors.Is(err, context.Canceled) {
 			track.Capture("exited successfully", nil)

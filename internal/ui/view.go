@@ -407,7 +407,7 @@ func (m Model) renderPromptLine() string {
 // to fix, and the cursor is drawn at the end, where typing leaves it.
 func (m Model) promptValue() string {
 	value := m.input.Value()
-	if !bidi.Contains(value) {
+	if !bidi.Reordering() || !bidi.Contains(value) {
 		return m.input.View()
 	}
 	return styleContextVal.Render(bidi.Display(value)) + styleDim.Render("▌")
@@ -594,7 +594,9 @@ func (m Model) renderStatusLine() string {
 	case m.err != nil:
 		return styleErr.Render(graph.Truncate("✗ "+m.err.Error(), m.width))
 	case m.flash != "":
-		return styleFlash.Render(graph.Truncate("• "+m.flash, m.width))
+		// A flash names what was changed, and a Hebrew name in one reads
+		// backwards like anywhere else.
+		return styleFlash.Render(bidi.Display(graph.Truncate("• "+m.flash, m.width)))
 	default:
 		return ""
 	}
@@ -783,6 +785,7 @@ func (m Model) renderHelp() string {
 			{"c", "copy object id"},
 			{"a", "add to the list in front"},
 			{"d", "delete the selected row"},
+			{"b", "right-to-left: entra-tui ⇄ terminal"},
 		}),
 	)
 
@@ -793,11 +796,23 @@ func (m Model) renderHelp() string {
 			"that finds nothing keeps no slot.\n" +
 			"a adds to whichever list is in front, so it means member on one tab and owner\n" +
 			"on the next; d deletes the row under the cursor from that same list.\n" +
-			"entra-tui reads the directory and edits only members and owners.")
+			"entra-tui reads the directory and edits only members and owners.\n" +
+			m.bidiHelp())
 
 	body := strings.Split(strings.Join([]string{cols, "", cols2, "", note}, "\n"), "\n")
 	return m.chrome(styleHelpTitle.Render("HELP"), "", body,
 		hintBar(m.width, [2]string{"any key", "back"}))
+}
+
+// bidiHelp says who is reordering right-to-left text and how that was
+// decided, so somebody whose Hebrew reads backwards can tell a wrong guess
+// from a wrong setting.
+func (m Model) bidiHelp() string {
+	line := "Right-to-left text is " + bidiOwner()
+	if m.opts.BidiReason != "" {
+		line += " (at launch: " + m.opts.BidiReason + ")"
+	}
+	return line + "; b switches it."
 }
 
 // ----------------------------------------------------------------- helpers
