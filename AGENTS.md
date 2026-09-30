@@ -189,15 +189,36 @@ misspellings. Slots are numbered from zero so the digit on a slot is the digit
 you press, never rearrange, and are cached per view under the user cache
 directory at mode `0600`.
 
-A term written like a GUID is matched, not searched for. Graph's `$search`
-sees only searchable *string* properties, so an object id pasted into the box
-is the one lookup guaranteed to find nothing — it goes out as a `$filter`
-over the collection's `IDFields` instead, with `$search` left off entirely
-(sending both would demand a result satisfy each, which none does). Every id
-property is tried at once, since somebody pasting an id rarely knows which of
-`id`, `appId` or `deviceId` it is. `AsGUID` is strict on purpose: treating a
-term as an id means *not* searching for it by name, so a looser test would
-take a technical-looking display name and quietly return nothing.
+A term that could be an id is **both** questions at once. Graph's `$search`
+sees only searchable *string* properties, so an id pasted into the box is the
+one lookup guaranteed to find nothing by itself — but the two cannot travel in
+one request either, because `$search` and `$filter` together are ANDed, and
+almost nothing is both named after an id and identified by it. So `List`
+splits the query, runs the halves concurrently and merges: id matches first,
+then the search results, deduplicated. Searching by id never costs you the
+rows searching by name would have found. Paging continues on the name half
+alone — the id half is bounded and complete after one request. An id lookup a
+tenant refuses is dropped rather than failing the search.
+
+**Partial ids barely work, and that is Graph's doing.** An object id supports
+only `eq`, on every resource, so a half-typed one cannot be matched anywhere.
+Exactly two properties are documented as supporting `startsWith`:
+
+| Property | `$filter` support | Partial? |
+| --- | --- | --- |
+| `user.id`, `group.id`, `application.id`, `servicePrincipal.id`, `device.id` | `eq`, `ne`, `not`, `in` | no |
+| `application.appId` | `eq` | no |
+| `servicePrincipal.appId` | `eq`, `ne`, `not`, `in`, `startsWith` | **yes** |
+| `device.deviceId` | `eq`, `ne`, `not`, `startsWith` | **yes** |
+
+`IDField.Prefix` carries that per property; a collection where nothing takes a
+prefix gets no id lookup for a partial term rather than one Graph would
+reject. Check the resource page before adding a field — the asymmetry between
+`application.appId` and `servicePrincipal.appId` is real, not a typo.
+
+`AsGUID` is strict, and `isIDFragment` wants eight characters, because below
+the first hyphen-delimited block too many ordinary words are accidentally all
+hex digits ("added", "facade").
 
 Search results are sorted by name client-side, because Graph refuses
 `$orderby` alongside `$search`. Unfiltered views are **not** sorted: sorting

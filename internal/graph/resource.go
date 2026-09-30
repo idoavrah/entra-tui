@@ -68,11 +68,11 @@ type Resource struct {
 	Select []string
 	// SearchFields are the properties a server-side search covers.
 	SearchFields []string
-	// IDFields are the GUID-typed properties a search matches exactly. They
-	// are separate from SearchFields because Graph's $search cannot see them
-	// at all: pasting an object id into the search box would otherwise be the
+	// IDFields are the GUID-typed properties a search also matches. They are
+	// separate from SearchFields because Graph's $search cannot see them at
+	// all: pasting an object id into the search box would otherwise be the
 	// one lookup that reliably finds nothing.
-	IDFields []string
+	IDFields []IDField
 	// Columns are the table columns, left to right.
 	Columns []Column
 	// Accent tints the resource in the header, the way k9s colours contexts.
@@ -128,7 +128,7 @@ func devicesResource() Resource {
 			"onPremisesSyncEnabled", "enrollmentType",
 		},
 		SearchFields: []string{"displayName"},
-		IDFields:     []string{"id", "deviceId"},
+		IDFields:     []IDField{{Name: "id"}, {Name: "deviceId", Prefix: true}},
 		Accent:       "#7dcfff",
 		State: func(i Item) RowState {
 			if enabled, ok := i.Bool("accountEnabled"); ok && !enabled {
@@ -184,7 +184,7 @@ func usersResource() Resource {
 			"mobilePhone", "createdDateTime", "onPremisesSyncEnabled",
 		},
 		SearchFields: []string{"displayName", "userPrincipalName", "mail"},
-		IDFields:     []string{"id"},
+		IDFields:     []IDField{{Name: "id"}},
 		Accent:       "#7aa2f7",
 		State: func(i Item) RowState {
 			if enabled, ok := i.Bool("accountEnabled"); ok && !enabled {
@@ -216,7 +216,7 @@ func groupsResource() Resource {
 			"isAssignableToRole",
 		},
 		SearchFields: []string{"displayName", "mail", "description"},
-		IDFields:     []string{"id"},
+		IDFields:     []IDField{{Name: "id"}},
 		Accent:       "#9ece6a",
 		Columns: []Column{
 			{Title: "NAME", MinWidth: 16, Weight: 3, Value: func(i Item) string { return i.String("displayName") }},
@@ -277,7 +277,7 @@ func appRegistrationsResource() Resource {
 			"publicClient", "api",
 		},
 		SearchFields: []string{"displayName", "description"},
-		IDFields:     []string{"id", "appId"},
+		IDFields:     []IDField{{Name: "id"}, {Name: "appId"}},
 		Accent:       "#e0af68",
 		State: func(i Item) RowState {
 			if SoonestCredentialExpiry(i) == "expired" {
@@ -312,7 +312,7 @@ func enterpriseAppsResource() Resource {
 		// publisherName is not searchable on servicePrincipals in every
 		// tenant, and an unsearchable field fails the whole query.
 		SearchFields: []string{"displayName"},
-		IDFields:     []string{"id", "appId"},
+		IDFields:     []IDField{{Name: "id"}, {Name: "appId", Prefix: true}},
 		Accent:       "#bb9af7",
 		State: func(i Item) RowState {
 			if enabled, ok := i.Bool("accountEnabled"); ok && !enabled {

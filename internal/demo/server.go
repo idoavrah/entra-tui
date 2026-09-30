@@ -106,10 +106,11 @@ var (
 	unassignPath = regexp.MustCompile(`^/v1\.0/servicePrincipals/([\w-]+)/appRoleAssignedTo/([\w-]+)$`)
 	objectPath   = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)$`)
 	listPath     = regexp.MustCompile(`^/v1\.0/(\w+)$`)
-	// The only $filter shape entra-tui sends: one or more exact matches on
-	// an id property, joined by "or". Anything else is refused, the way
-	// Graph refuses a filter it does not support.
-	eqClause = regexp.MustCompile(`^(\w+) eq '([^']*)'$`)
+	// The only $filter shapes entra-tui sends: exact or prefix matches on an
+	// id property, joined by "or". Anything else is refused, the way Graph
+	// refuses a filter it does not support.
+	eqClause     = regexp.MustCompile(`^(\w+) eq '([^']*)'$`)
+	prefixClause = regexp.MustCompile(`^startswith\((\w+),'([^']*)'\)$`)
 )
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -166,14 +167,14 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request, collection string)
 	}
 
 	if expr := q.Get("$filter"); expr != "" {
-		matchers, ok := equalityMatchers(expr)
+		matchers, ok := filterClauses(expr)
 		if !ok {
 			writeError(w, http.StatusBadRequest, "Request_UnsupportedQuery", "unsupported $filter")
 			return
 		}
 		items = filter(items, func(it graph.Item) bool {
-			for field, value := range matchers {
-				if it.String(field) == value {
+			for _, m := range matchers {
+				if m.matches(it) {
 					return true
 				}
 			}
@@ -413,18 +414,38 @@ func (s *Server) removeAssignment(w http.ResponseWriter, spID, assignmentID stri
 	writeError(w, http.StatusNotFound, "Request_ResourceNotFound", "no such assignment")
 }
 
-// equalityMatchers parses "a eq 'x' or b eq 'y'" into the property/value
-// pairs it tests. It reports false for anything else rather than guessing:
-// a fake that quietly ignored a filter it did not understand would answer a
-// question nobody asked, and let a real bug through to a tenant.
-func equalityMatchers(expr string) (map[string]string, bool) {
-	out := map[string]string{}
+// filterClause is one property test out of a $filter.
+type filterClause struct {
+	field  string
+	value  string
+	prefix bool
+}
+
+func (c filterClause) matches(it graph.Item) bool {
+	got := it.String(c.field)
+	if c.prefix {
+		return got != "" && strings.HasPrefix(strings.ToLower(got), strings.ToLower(c.value))
+	}
+	return got == c.value
+}
+
+// filterClauses parses "a eq 'x' or startswith(b,'y')" into the tests it
+// makes. It reports false for anything else rather than guessing: a fake that
+// quietly ignored a filter it did not understand would answer a question
+// nobody asked, and let a real bug through to a tenant.
+func filterClauses(expr string) ([]filterClause, bool) {
+	var out []filterClause
 	for _, clause := range strings.Split(expr, " or ") {
-		m := eqClause.FindStringSubmatch(strings.TrimSpace(clause))
-		if m == nil {
-			return nil, false
+		clause = strings.TrimSpace(clause)
+		if m := eqClause.FindStringSubmatch(clause); m != nil {
+			out = append(out, filterClause{field: m[1], value: m[2]})
+			continue
 		}
-		out[m[1]] = m[2]
+		if m := prefixClause.FindStringSubmatch(clause); m != nil {
+			out = append(out, filterClause{field: m[1], value: m[2], prefix: true})
+			continue
+		}
+		return nil, false
 	}
 	return out, len(out) > 0
 }

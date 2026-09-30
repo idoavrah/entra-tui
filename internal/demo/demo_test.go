@@ -313,20 +313,20 @@ func TestSearchingByAnIDFindsTheObject(t *testing.T) {
 		want := first.Items[0].ID()
 
 		for _, field := range res.IDFields {
-			if _, ok := graph.AsGUID(first.Items[0].String(field)); !ok {
+			if _, ok := graph.AsGUID(first.Items[0].String(field.Name)); !ok {
 				continue
 			}
 			page, err := c.List(ctx, graph.Query{
 				Path: res.Path, Select: res.Select,
 				SearchFields: res.SearchFields, IDFields: res.IDFields,
-				SearchTerm: first.Items[0].String(field),
+				SearchTerm: first.Items[0].String(field.Name),
 			})
 			if err != nil {
-				t.Errorf("%s by %s: %v", res.Kind, field, err)
+				t.Errorf("%s by %s: %v", res.Kind, field.Name, err)
 				continue
 			}
 			if len(page.Items) != 1 || page.Items[0].ID() != want {
-				t.Errorf("%s by %s = %d items, want just %s", res.Kind, field, len(page.Items), want)
+				t.Errorf("%s by %s = %d items, want just %s", res.Kind, field.Name, len(page.Items), want)
 			}
 			exercised++
 		}
@@ -371,5 +371,64 @@ func TestAnUnknownFilterIsStillRefused(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("the demo accepted a filter it does not implement")
+	}
+}
+
+func TestAPartialIDMatchesWhereGraphAllowsIt(t *testing.T) {
+	// Enterprise apps are one of the two places a partly-typed id can be
+	// matched at all: servicePrincipal.appId is documented as supporting
+	// startsWith, where an object id supports only eq.
+	c := NewServer(7).Client()
+	ctx := context.Background()
+
+	res, _ := graph.Lookup("entapps")
+	first, err := c.List(ctx, graph.Query{Path: res.Path, Select: res.Select, Top: 1})
+	if err != nil || len(first.Items) == 0 {
+		t.Fatalf("listing enterprise apps: %v", err)
+	}
+	appID := first.Items[0].String("appId")
+	if _, ok := graph.AsGUID(appID); !ok {
+		t.Fatalf("appId %q is not a GUID, so this proves nothing", appID)
+	}
+
+	page, err := c.List(ctx, graph.Query{
+		Path: res.Path, Select: res.Select,
+		SearchFields: res.SearchFields, IDFields: res.IDFields,
+		SearchTerm: appID[:8],
+	})
+	if err != nil {
+		t.Fatalf("partial id search: %v", err)
+	}
+
+	var found bool
+	for _, it := range page.Items {
+		if it.ID() == first.Items[0].ID() {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the first 8 characters of %s found %d rows, none of them it",
+			appID, len(page.Items))
+	}
+}
+
+func TestSearchingByIDStillFindsThingsByName(t *testing.T) {
+	// The union: asking by id must never cost the rows that asking by name
+	// would have found. A search term is both questions at once.
+	c := NewServer(7).Client()
+	ctx := context.Background()
+	res, _ := graph.Lookup("entapps")
+
+	// "0000" is too short to be an id fragment, so this is a pure name
+	// search; the demo names contain no digits, so it finds nothing.
+	byName, err := c.List(ctx, graph.Query{
+		Path: res.Path, Select: res.Select, Count: true,
+		SearchFields: res.SearchFields, IDFields: res.IDFields, SearchTerm: "Ember",
+	})
+	if err != nil || len(byName.Items) == 0 {
+		t.Fatalf("name search: %v (%d items)", err, len(byName.Items))
+	}
+	if byName.TotalCount <= 0 {
+		t.Errorf("TotalCount = %d, want the search's own count", byName.TotalCount)
 	}
 }

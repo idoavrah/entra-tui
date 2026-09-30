@@ -104,12 +104,11 @@ type Query struct {
 	// without having to unpick a built expression.
 	SearchFields []string
 	SearchTerm   string
-	// IDFields are the GUID-typed properties an exact match may name: an
-	// object id, an application id, a device id. Graph's $search covers only
+	// IDFields are the GUID-typed properties a term may identify: an object
+	// id, an application id, a device id. Graph's $search covers only
 	// searchable string properties, so an id pasted into the search box finds
-	// nothing at all; when the term is written like a GUID these drive a
-	// $filter instead, and $search is left off entirely.
-	IDFields []string
+	// nothing at all; these drive a $filter alongside it.
+	IDFields []IDField
 	// OrderBy is a raw $orderby expression.
 	OrderBy string
 	// Top is the requested page size; DefaultPageSize when zero.
@@ -126,15 +125,18 @@ func (q Query) NeedsAdvancedQuery() bool {
 }
 
 // searching reports whether the query carries a usable $search.
-//
-// A term matched as an id is not a search: it goes out as a $filter, and the
-// two must not both be sent -- Graph would then require every result to
-// satisfy the filter *and* the search, which no object does.
 func (q Query) searching() bool {
-	if _, ok := q.idMatch(); ok {
-		return false
-	}
 	return strings.TrimSpace(q.SearchTerm) != "" && len(q.SearchFields) > 0
+}
+
+// IDField is a GUID-typed property a search can match against.
+type IDField struct {
+	Name string
+	// Prefix reports that Graph accepts startsWith on this property, which is
+	// what lets a partly-typed id match. Very few id properties allow it --
+	// an object id never does, on any resource -- so most ids can only be
+	// matched whole. The per-property support is in AGENTS.md.
+	Prefix bool
 }
 
 // guidPattern is the canonical 8-4-4-4-12 form, optionally braced, which is
@@ -155,40 +157,95 @@ func AsGUID(s string) (string, bool) {
 	return strings.Trim(s, "{}"), true
 }
 
-// idMatch is the GUID this query should match exactly, if any.
-func (q Query) idMatch() (string, bool) {
-	if len(q.IDFields) == 0 {
-		return "", false
+// idFragmentMin is how much of an id has to be typed before the term is
+// treated as one. Eight is the first hyphen-delimited block; below it, too
+// many ordinary words are accidentally all hex digits ("added", "facade").
+const idFragmentMin = 8
+
+// isIDFragment reports whether s could be the beginning of an id.
+func isIDFragment(s string) bool {
+	if len(s) < idFragmentMin {
+		return false
 	}
-	return AsGUID(q.SearchTerm)
+	for _, r := range s {
+		switch {
+		case r == '-',
+			r >= '0' && r <= '9',
+			r >= 'a' && r <= 'f',
+			r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
-// idFilter matches the term against every id property the collection has,
-// since a user pasting an id rarely knows or cares which one it is.
-func (q Query) idFilter() string {
-	id, ok := q.idMatch()
-	if !ok {
+// idExpr is the $filter matching the term against this collection's id
+// properties, or empty when the term cannot be one.
+//
+// A whole id is matched against every id property, since somebody pasting one
+// rarely knows or cares which it is. A partial id can only be matched against
+// the few properties Graph accepts startsWith on, so it is often matched
+// against nothing -- which is why the name search runs regardless.
+func (q Query) idExpr() string {
+	term := strings.Trim(strings.TrimSpace(q.SearchTerm), "{}")
+	if term == "" || len(q.IDFields) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(q.IDFields))
-	for _, f := range q.IDFields {
-		parts = append(parts, fmt.Sprintf("%s eq '%s'", f, escapeODataString(id)))
+
+	var parts []string
+	if _, whole := AsGUID(term); whole {
+		for _, f := range q.IDFields {
+			parts = append(parts, fmt.Sprintf("%s eq '%s'", f.Name, escapeODataString(term)))
+		}
+	} else if isIDFragment(term) {
+		for _, f := range q.IDFields {
+			if f.Prefix {
+				parts = append(parts, fmt.Sprintf("startswith(%s,'%s')", f.Name, escapeODataString(term)))
+			}
+		}
 	}
 	return strings.Join(parts, " or ")
 }
 
-// effectiveFilter combines the caller's own filter with an id match. They are
-// ANDed rather than one replacing the other, so neither is silently dropped.
-func (q Query) effectiveFilter() string {
-	id := q.idFilter()
+// andFilters joins two filters without letting either be silently dropped.
+func andFilters(a, b string) string {
 	switch {
-	case id == "":
-		return q.Filter
-	case q.Filter == "":
-		return id
+	case a == "":
+		return b
+	case b == "":
+		return a
 	default:
-		return "(" + q.Filter + ") and (" + id + ")"
+		return "(" + a + ") and (" + b + ")"
 	}
+}
+
+// maxIDMatches caps the id lookup. Matching a whole id returns one row per id
+// property; a prefix could in principle return many, and the point of the
+// lookup is to surface the object somebody already half-knows, not to page.
+const maxIDMatches = 25
+
+// split separates a query into the id lookup and the name search. The id half
+// is nil when the term cannot be an id, which is the ordinary case.
+func (q Query) split() (*Query, Query) {
+	byName := q
+	byName.IDFields = nil
+
+	expr := q.idExpr()
+	if expr == "" {
+		return nil, byName
+	}
+
+	byID := q
+	byID.IDFields = nil
+	byID.SearchFields, byID.SearchTerm = nil, ""
+	byID.Filter = andFilters(q.Filter, expr)
+	byID.OrderBy = ""
+	byID.Top = maxIDMatches
+	// $count comes along for the consistency level it forces: some of these
+	// filters are only served by the index that advanced queries read.
+	byID.Count = true
+	return &byID, byName
 }
 
 // searchExpr renders the search into Graph's syntax across SearchFields,
@@ -236,8 +293,8 @@ func (c *Client) buildURL(q Query) string {
 	if len(q.Select) > 0 {
 		params.Set("$select", strings.Join(q.Select, ","))
 	}
-	if f := q.effectiveFilter(); f != "" {
-		params.Set("$filter", f)
+	if q.Filter != "" {
+		params.Set("$filter", q.Filter)
 	}
 	if expr := q.searchExpr(); expr != "" {
 		params.Set("$search", expr)
@@ -260,6 +317,79 @@ func (c *Client) buildURL(q Query) string {
 }
 
 // List fetches the first page of a collection.
+func (c *Client) List(ctx context.Context, q Query) (*Page, error) {
+	byID, byName := q.split()
+	if byID == nil {
+		return c.listOnce(ctx, byName)
+	}
+
+	// The two questions cannot be put to Graph at once: $search and $filter
+	// in the same request are ANDed, and almost nothing is both named after
+	// an id and identified by it. So they go separately, together, and the
+	// answers are merged -- searching by id never costs you the rows that
+	// searching by name would have found.
+	var ids *Page
+	var idErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ids, idErr = c.listOnce(ctx, *byID)
+	}()
+
+	page, err := c.listOnce(ctx, byName)
+	wg.Wait()
+
+	if err != nil {
+		return nil, err
+	}
+	if idErr != nil {
+		// A tenant that refuses the id filter must not cost the search its
+		// results; the name half is what the user typed either way.
+		return page, nil
+	}
+	return mergePages(ids, page), nil
+}
+
+// mergePages puts the id matches first -- the most specific answer to what
+// was typed -- then the search results, skipping anything already above.
+//
+// Paging continues on the search alone. The id half is bounded and complete
+// after one request, so there is nothing more of it to fetch.
+func mergePages(ids, rest *Page) *Page {
+	if ids == nil || len(ids.Items) == 0 {
+		return rest
+	}
+
+	seen := make(map[string]bool, len(ids.Items))
+	out := make([]Item, 0, len(ids.Items)+len(rest.Items))
+	for _, it := range ids.Items {
+		if id := it.ID(); id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, it)
+		}
+	}
+
+	duplicates := 0
+	for _, it := range rest.Items {
+		if id := it.ID(); id != "" && seen[id] {
+			duplicates++
+			continue
+		}
+		out = append(out, it)
+	}
+
+	merged := *rest
+	merged.Items = out
+	if merged.TotalCount >= 0 {
+		// An id match the search did not also return is a row the count did
+		// not know about.
+		merged.TotalCount += int64(len(seen) - duplicates)
+	}
+	return &merged
+}
+
+// listOnce fetches one page.
 //
 // Graph rejects a request outright when it names a property the tenant does
 // not have, and which properties exist varies with tenant configuration and
@@ -267,8 +397,8 @@ func (c *Client) buildURL(q Query) string {
 // one that some tenants refuse. Rather than hard-coding a lowest common
 // denominator, the richest query is sent, the rejected property is read out
 // of the error, and the request is retried without it. The property is
-// remembered, so the cost is one extra round trip per property per session.
-func (c *Client) List(ctx context.Context, q Query) (*Page, error) {
+// remembered, so it costs one round trip per property per session.
+func (c *Client) listOnce(ctx context.Context, q Query) (*Page, error) {
 	for range maxPropertyRetries {
 		pruned := c.prune(q)
 		page, err := c.fetchPage(ctx, c.buildURL(pruned), pruned.NeedsAdvancedQuery())

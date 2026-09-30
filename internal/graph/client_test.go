@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -476,81 +478,225 @@ func TestAsGUIDIsStrict(t *testing.T) {
 	}
 }
 
-func TestAnIDTermFiltersInsteadOfSearching(t *testing.T) {
-	// $search sees only searchable string properties, so an id pasted into
-	// the search box has to go out as a filter or it finds nothing.
+func TestIDFragmentNeedsEnoughOfAnID(t *testing.T) {
+	// Below the first hyphen-delimited block too many ordinary words are
+	// accidentally all hex digits.
+	for _, in := range []string{"00000034", "00000034-1111", "DEADBEEF", "0000-0000"} {
+		if !isIDFragment(in) {
+			t.Errorf("isIDFragment(%q) = false, want true", in)
+		}
+	}
+	for _, in := range []string{"", "ada", "faced", "added", "00000034z", "0000 0034", "ada@x.com"} {
+		if isIDFragment(in) {
+			t.Errorf("isIDFragment(%q) = true, want false", in)
+		}
+	}
+}
+
+func TestAWholeIDIsMatchedAgainstEveryIDProperty(t *testing.T) {
 	const id = "11111111-2222-3333-4444-555555555555"
-	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
-	raw := c.buildURL(Query{
+	byID, byName := Query{
 		Path:         "/servicePrincipals",
 		SearchFields: []string{"displayName"},
-		IDFields:     []string{"id", "appId"},
+		IDFields:     []IDField{{Name: "id"}, {Name: "appId", Prefix: true}},
 		SearchTerm:   id,
-	})
+	}.split()
 
-	u, _ := url.Parse(raw)
-	// Both id properties are tried: somebody pasting an id rarely knows or
-	// cares which of the two it is.
-	if want := "id eq '" + id + "' or appId eq '" + id + "'"; u.Query().Get("$filter") != want {
-		t.Errorf("$filter = %q, want %q", u.Query().Get("$filter"), want)
+	if byID == nil {
+		t.Fatal("a whole id produced no id lookup")
 	}
-	// Sending both would demand every result satisfy the filter *and* the
-	// search, which no object does.
-	if got := u.Query().Get("$search"); got != "" {
-		t.Errorf("$search = %q, want it left off entirely", got)
+	// Somebody pasting an id rarely knows or cares which of the two it is.
+	if want := "id eq '" + id + "' or appId eq '" + id + "'"; byID.Filter != want {
+		t.Errorf("id filter = %q, want %q", byID.Filter, want)
+	}
+	// The two cannot travel together: $search and $filter in one request are
+	// ANDed, and nothing is both named after an id and identified by it.
+	if byID.SearchTerm != "" || len(byID.SearchFields) != 0 {
+		t.Errorf("the id lookup carries a search: %+v", byID)
+	}
+	// The name half still runs, and is what pages.
+	if byName.Filter != "" || byName.SearchTerm != id {
+		t.Errorf("the name half = %+v, want an ordinary search", byName)
+	}
+}
+
+func TestAPartialIDIsMatchedOnlyWhereGraphAllowsIt(t *testing.T) {
+	// An object id takes eq and nothing else, on every resource, so a partly
+	// typed one cannot be matched at all. Only the few properties documented
+	// as supporting startsWith are tried.
+	byID, _ := Query{
+		Path:       "/servicePrincipals",
+		IDFields:   []IDField{{Name: "id"}, {Name: "appId", Prefix: true}},
+		SearchTerm: "00000034",
+	}.split()
+
+	if byID == nil {
+		t.Fatal("a partial id produced no id lookup where one is possible")
+	}
+	if want := "startswith(appId,'00000034')"; byID.Filter != want {
+		t.Errorf("id filter = %q, want %q", byID.Filter, want)
+	}
+
+	// A collection whose id properties all take eq gets no id lookup at all,
+	// rather than one Graph would reject.
+	only, _ := Query{
+		Path:       "/users",
+		IDFields:   []IDField{{Name: "id"}},
+		SearchTerm: "00000034",
+	}.split()
+	if only != nil {
+		t.Errorf("id filter = %q, want none where no property takes a prefix", only.Filter)
 	}
 }
 
 func TestANameTermStillSearches(t *testing.T) {
-	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
-	raw := c.buildURL(Query{
+	byID, byName := Query{
 		Path:         "/users",
 		SearchFields: []string{"displayName"},
-		IDFields:     []string{"id"},
+		IDFields:     []IDField{{Name: "id"}},
 		SearchTerm:   "ada",
-	})
+	}.split()
 
-	u, _ := url.Parse(raw)
+	if byID != nil {
+		t.Errorf("a name produced an id lookup: %q", byID.Filter)
+	}
+	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
+	u, _ := url.Parse(c.buildURL(byName))
 	if got := u.Query().Get("$search"); got != `"displayName:ada"` {
 		t.Errorf("$search = %q, want the ordinary search", got)
-	}
-	if got := u.Query().Get("$filter"); got != "" {
-		t.Errorf("$filter = %q, want none for a name", got)
 	}
 }
 
 func TestACollectionWithNoIDFieldsSearchesAnyway(t *testing.T) {
 	// FindPrincipals and the relationship lookups build queries without
-	// IDFields; a GUID there must keep its old meaning rather than silently
-	// becoming a filter on a collection that may not support one.
-	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
-	raw := c.buildURL(Query{
+	// IDFields; a GUID there must keep its old meaning.
+	byID, byName := Query{
 		Path:         "/users",
 		SearchFields: []string{"displayName"},
 		SearchTerm:   "11111111-2222-3333-4444-555555555555",
-	})
+	}.split()
 
-	u, _ := url.Parse(raw)
-	if got := u.Query().Get("$filter"); got != "" {
-		t.Errorf("$filter = %q, want none without IDFields", got)
+	if byID != nil {
+		t.Errorf("id lookup = %q, want none without IDFields", byID.Filter)
 	}
-	if u.Query().Get("$search") == "" {
-		t.Error("$search was dropped on a collection that has no id fields")
+	if byName.SearchTerm == "" {
+		t.Error("the search was dropped on a collection that has no id fields")
 	}
 }
 
 func TestAnIDMatchIsAndedWithTheCallersOwnFilter(t *testing.T) {
 	// Neither may silently replace the other.
 	const id = "11111111-2222-3333-4444-555555555555"
-	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
-	raw := c.buildURL(Query{
+	byID, _ := Query{
 		Path: "/applications", Filter: "accountEnabled eq true",
-		IDFields: []string{"id"}, SearchTerm: id,
-	})
+		IDFields: []IDField{{Name: "id"}}, SearchTerm: id,
+	}.split()
 
-	u, _ := url.Parse(raw)
+	if byID == nil {
+		t.Fatal("no id lookup")
+	}
 	want := "(accountEnabled eq true) and (id eq '" + id + "')"
-	if got := u.Query().Get("$filter"); got != want {
-		t.Errorf("$filter = %q, want %q", got, want)
+	if byID.Filter != want {
+		t.Errorf("$filter = %q, want %q", byID.Filter, want)
+	}
+}
+
+func TestMergePutsIDMatchesFirstAndCountsThem(t *testing.T) {
+	ids := &Page{Items: []Item{{"id": "a"}, {"id": "b"}}}
+	rest := &Page{Items: []Item{{"id": "b"}, {"id": "c"}}, TotalCount: 2, NextLink: "next"}
+
+	got := mergePages(ids, rest)
+
+	var order []string
+	for _, it := range got.Items {
+		order = append(order, it.ID())
+	}
+	// The id matches lead -- they are the most specific answer to what was
+	// typed -- and "b" appears once, not twice.
+	if want := []string{"a", "b", "c"}; !slices.Equal(order, want) {
+		t.Errorf("order = %v, want %v", order, want)
+	}
+	// "a" is a row the search's count did not know about; "b" it did.
+	if got.TotalCount != 3 {
+		t.Errorf("TotalCount = %d, want 3", got.TotalCount)
+	}
+	// Paging continues on the search, which is the half that has more.
+	if got.NextLink != "next" {
+		t.Errorf("NextLink = %q, want the search's", got.NextLink)
+	}
+}
+
+func TestAnIDTermAlsoSearchesByName(t *testing.T) {
+	// The union, end to end: a GUID might be an id *and* be mentioned in a
+	// description, and the request that finds one cannot find the other.
+	const id = "11111111-2222-3333-4444-555555555555"
+	var mu sync.Mutex
+	var filters, searches int
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/servicePrincipals", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		mu.Lock()
+		body := map[string]any{"value": []map[string]any{}}
+		switch {
+		case q.Get("$filter") != "":
+			filters++
+			body["value"] = []map[string]any{{"id": "sp-by-id"}}
+		case q.Get("$search") != "":
+			searches++
+			body["value"] = []map[string]any{{"id": "sp-by-name"}}
+		}
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(body)
+	})
+	c, _ := newTestClient(t, mux)
+
+	page, err := c.List(context.Background(), Query{
+		Path:         "/servicePrincipals",
+		SearchFields: []string{"displayName"},
+		IDFields:     []IDField{{Name: "id"}},
+		SearchTerm:   id,
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if filters != 1 || searches != 1 {
+		t.Errorf("sent %d filters and %d searches, want one of each", filters, searches)
+	}
+	var got []string
+	for _, it := range page.Items {
+		got = append(got, it.ID())
+	}
+	if want := []string{"sp-by-id", "sp-by-name"}; !slices.Equal(got, want) {
+		t.Errorf("items = %v, want the union %v", got, want)
+	}
+}
+
+func TestARefusedIDLookupDoesNotCostTheSearch(t *testing.T) {
+	// A tenant that will not answer the id half must not turn a working
+	// search into a failed one.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1.0/users", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("$filter") != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"Request_UnsupportedQuery","message":"no"}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"value": []map[string]any{{"id": "u1"}}})
+	})
+	c, _ := newTestClient(t, mux)
+
+	page, err := c.List(context.Background(), Query{
+		Path:         "/users",
+		SearchFields: []string{"displayName"},
+		IDFields:     []IDField{{Name: "id"}},
+		SearchTerm:   "11111111-2222-3333-4444-555555555555",
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ID() != "u1" {
+		t.Errorf("items = %v, want the search's result to survive", page.Items)
 	}
 }
