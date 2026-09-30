@@ -106,7 +106,10 @@ var (
 	unassignPath = regexp.MustCompile(`^/v1\.0/servicePrincipals/([\w-]+)/appRoleAssignedTo/([\w-]+)$`)
 	objectPath   = regexp.MustCompile(`^/v1\.0/(\w+)/([\w-]+)$`)
 	listPath     = regexp.MustCompile(`^/v1\.0/(\w+)$`)
-	filterByApp  = regexp.MustCompile(`^appId eq '([^']*)'$`)
+	// The only $filter shape entra-tui sends: one or more exact matches on
+	// an id property, joined by "or". Anything else is refused, the way
+	// Graph refuses a filter it does not support.
+	eqClause = regexp.MustCompile(`^(\w+) eq '([^']*)'$`)
 )
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -163,12 +166,19 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request, collection string)
 	}
 
 	if expr := q.Get("$filter"); expr != "" {
-		m := filterByApp.FindStringSubmatch(expr)
-		if m == nil {
+		matchers, ok := equalityMatchers(expr)
+		if !ok {
 			writeError(w, http.StatusBadRequest, "Request_UnsupportedQuery", "unsupported $filter")
 			return
 		}
-		items = filter(items, func(it graph.Item) bool { return it.String("appId") == m[1] })
+		items = filter(items, func(it graph.Item) bool {
+			for field, value := range matchers {
+				if it.String(field) == value {
+					return true
+				}
+			}
+			return false
+		})
 	}
 	if term := searchTerm(q.Get("$search")); term != "" {
 		items = filter(items, func(it graph.Item) bool { return matches(it, term) })
@@ -401,6 +411,22 @@ func (s *Server) removeAssignment(w http.ResponseWriter, spID, assignmentID stri
 		}
 	}
 	writeError(w, http.StatusNotFound, "Request_ResourceNotFound", "no such assignment")
+}
+
+// equalityMatchers parses "a eq 'x' or b eq 'y'" into the property/value
+// pairs it tests. It reports false for anything else rather than guessing:
+// a fake that quietly ignored a filter it did not understand would answer a
+// question nobody asked, and let a real bug through to a tenant.
+func equalityMatchers(expr string) (map[string]string, bool) {
+	out := map[string]string{}
+	for _, clause := range strings.Split(expr, " or ") {
+		m := eqClause.FindStringSubmatch(strings.TrimSpace(clause))
+		if m == nil {
+			return nil, false
+		}
+		out[m[1]] = m[2]
+	}
+	return out, len(out) > 0
 }
 
 // find locates any object by id, across every collection.

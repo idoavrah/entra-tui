@@ -443,3 +443,114 @@ func TestCountReportsAnUnparseableBody(t *testing.T) {
 		t.Fatal("Count accepted a non-numeric body")
 	}
 }
+
+func TestAsGUIDIsStrict(t *testing.T) {
+	// Treating a term as an id means *not* searching for it by name, so a
+	// loose test would take a technical-looking display name and return
+	// nothing at all.
+	const want = "11111111-2222-3333-4444-555555555555"
+	for _, in := range []string{
+		want,
+		strings.ToUpper(want),
+		"{" + want + "}",
+		"  " + want + "  ",
+	} {
+		got, ok := AsGUID(in)
+		if !ok || got != want {
+			t.Errorf("AsGUID(%q) = %q, %v; want %q, true", in, got, ok, want)
+		}
+	}
+
+	for _, in := range []string{
+		"", "ada", "Ada Lovelace",
+		"11111111222233334444555555555555",            // no hyphens
+		"11111111-2222-3333-4444-55555555555",         // a digit short
+		"11111111-2222-3333-4444-5555555555555",       // a digit long
+		"11111111-2222-3333-4444-55555555555g",        // not hex
+		"prefix-11111111-2222-3333-4444-555555555555", // not the whole term
+		"ada@11111111-2222-3333-4444-555555555555",
+	} {
+		if got, ok := AsGUID(in); ok {
+			t.Errorf("AsGUID(%q) = %q, true; want it refused", in, got)
+		}
+	}
+}
+
+func TestAnIDTermFiltersInsteadOfSearching(t *testing.T) {
+	// $search sees only searchable string properties, so an id pasted into
+	// the search box has to go out as a filter or it finds nothing.
+	const id = "11111111-2222-3333-4444-555555555555"
+	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
+	raw := c.buildURL(Query{
+		Path:         "/servicePrincipals",
+		SearchFields: []string{"displayName"},
+		IDFields:     []string{"id", "appId"},
+		SearchTerm:   id,
+	})
+
+	u, _ := url.Parse(raw)
+	// Both id properties are tried: somebody pasting an id rarely knows or
+	// cares which of the two it is.
+	if want := "id eq '" + id + "' or appId eq '" + id + "'"; u.Query().Get("$filter") != want {
+		t.Errorf("$filter = %q, want %q", u.Query().Get("$filter"), want)
+	}
+	// Sending both would demand every result satisfy the filter *and* the
+	// search, which no object does.
+	if got := u.Query().Get("$search"); got != "" {
+		t.Errorf("$search = %q, want it left off entirely", got)
+	}
+}
+
+func TestANameTermStillSearches(t *testing.T) {
+	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
+	raw := c.buildURL(Query{
+		Path:         "/users",
+		SearchFields: []string{"displayName"},
+		IDFields:     []string{"id"},
+		SearchTerm:   "ada",
+	})
+
+	u, _ := url.Parse(raw)
+	if got := u.Query().Get("$search"); got != `"displayName:ada"` {
+		t.Errorf("$search = %q, want the ordinary search", got)
+	}
+	if got := u.Query().Get("$filter"); got != "" {
+		t.Errorf("$filter = %q, want none for a name", got)
+	}
+}
+
+func TestACollectionWithNoIDFieldsSearchesAnyway(t *testing.T) {
+	// FindPrincipals and the relationship lookups build queries without
+	// IDFields; a GUID there must keep its old meaning rather than silently
+	// becoming a filter on a collection that may not support one.
+	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
+	raw := c.buildURL(Query{
+		Path:         "/users",
+		SearchFields: []string{"displayName"},
+		SearchTerm:   "11111111-2222-3333-4444-555555555555",
+	})
+
+	u, _ := url.Parse(raw)
+	if got := u.Query().Get("$filter"); got != "" {
+		t.Errorf("$filter = %q, want none without IDFields", got)
+	}
+	if u.Query().Get("$search") == "" {
+		t.Error("$search was dropped on a collection that has no id fields")
+	}
+}
+
+func TestAnIDMatchIsAndedWithTheCallersOwnFilter(t *testing.T) {
+	// Neither may silently replace the other.
+	const id = "11111111-2222-3333-4444-555555555555"
+	c := New(stubProvider{}, WithBaseURL("https://graph.example/v1.0"))
+	raw := c.buildURL(Query{
+		Path: "/applications", Filter: "accountEnabled eq true",
+		IDFields: []string{"id"}, SearchTerm: id,
+	})
+
+	u, _ := url.Parse(raw)
+	want := "(accountEnabled eq true) and (id eq '" + id + "')"
+	if got := u.Query().Get("$filter"); got != want {
+		t.Errorf("$filter = %q, want %q", got, want)
+	}
+}

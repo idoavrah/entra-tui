@@ -96,6 +96,9 @@ func (m *Model) query() graph.Query {
 	}
 	if m.coll.search != "" {
 		q.SearchFields, q.SearchTerm = res.SearchFields, m.coll.search
+		// An id is matched exactly rather than searched for; the client
+		// decides which, since only it can see whether the term is one.
+		q.IDFields = res.IDFields
 	}
 	return q
 }

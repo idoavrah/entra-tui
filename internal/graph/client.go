@@ -104,6 +104,12 @@ type Query struct {
 	// without having to unpick a built expression.
 	SearchFields []string
 	SearchTerm   string
+	// IDFields are the GUID-typed properties an exact match may name: an
+	// object id, an application id, a device id. Graph's $search covers only
+	// searchable string properties, so an id pasted into the search box finds
+	// nothing at all; when the term is written like a GUID these drive a
+	// $filter instead, and $search is left off entirely.
+	IDFields []string
 	// OrderBy is a raw $orderby expression.
 	OrderBy string
 	// Top is the requested page size; DefaultPageSize when zero.
@@ -120,8 +126,69 @@ func (q Query) NeedsAdvancedQuery() bool {
 }
 
 // searching reports whether the query carries a usable $search.
+//
+// A term matched as an id is not a search: it goes out as a $filter, and the
+// two must not both be sent -- Graph would then require every result to
+// satisfy the filter *and* the search, which no object does.
 func (q Query) searching() bool {
+	if _, ok := q.idMatch(); ok {
+		return false
+	}
 	return strings.TrimSpace(q.SearchTerm) != "" && len(q.SearchFields) > 0
+}
+
+// guidPattern is the canonical 8-4-4-4-12 form, optionally braced, which is
+// how Entra writes every id -- in the portal, in the CLI, and in a URL.
+var guidPattern = regexp.MustCompile(
+	`^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$`)
+
+// AsGUID returns the bare id when s is written like one.
+//
+// The test is deliberately strict. Treating a term as an id means not
+// searching for it by name, so anything looser would take a display name that
+// merely looks technical and quietly return nothing.
+func AsGUID(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if !guidPattern.MatchString(s) {
+		return "", false
+	}
+	return strings.Trim(s, "{}"), true
+}
+
+// idMatch is the GUID this query should match exactly, if any.
+func (q Query) idMatch() (string, bool) {
+	if len(q.IDFields) == 0 {
+		return "", false
+	}
+	return AsGUID(q.SearchTerm)
+}
+
+// idFilter matches the term against every id property the collection has,
+// since a user pasting an id rarely knows or cares which one it is.
+func (q Query) idFilter() string {
+	id, ok := q.idMatch()
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, len(q.IDFields))
+	for _, f := range q.IDFields {
+		parts = append(parts, fmt.Sprintf("%s eq '%s'", f, escapeODataString(id)))
+	}
+	return strings.Join(parts, " or ")
+}
+
+// effectiveFilter combines the caller's own filter with an id match. They are
+// ANDed rather than one replacing the other, so neither is silently dropped.
+func (q Query) effectiveFilter() string {
+	id := q.idFilter()
+	switch {
+	case id == "":
+		return q.Filter
+	case q.Filter == "":
+		return id
+	default:
+		return "(" + q.Filter + ") and (" + id + ")"
+	}
 }
 
 // searchExpr renders the search into Graph's syntax across SearchFields,
@@ -132,8 +199,11 @@ func (q Query) searching() bool {
 // removing them is the only way to keep a user's stray quote from producing
 // a malformed query.
 func (q Query) searchExpr() string {
+	if !q.searching() {
+		return ""
+	}
 	term := strings.TrimSpace(strings.NewReplacer(`"`, "", `\`, "").Replace(q.SearchTerm))
-	if term == "" || len(q.SearchFields) == 0 {
+	if term == "" {
 		return ""
 	}
 	parts := make([]string, 0, len(q.SearchFields))
@@ -166,8 +236,8 @@ func (c *Client) buildURL(q Query) string {
 	if len(q.Select) > 0 {
 		params.Set("$select", strings.Join(q.Select, ","))
 	}
-	if q.Filter != "" {
-		params.Set("$filter", q.Filter)
+	if f := q.effectiveFilter(); f != "" {
+		params.Set("$filter", f)
 	}
 	if expr := q.searchExpr(); expr != "" {
 		params.Set("$search", expr)

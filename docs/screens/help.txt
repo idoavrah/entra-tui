@@ -17,7 +17,7 @@ Status   connected                              q quit    pg↑↓ page         
 │                                                                                                                                                                                            │
 │                                                                                                                                                                                            │
 │SEARCH                                DATA                                                                                                                                                  │
-│  /           search the directory      r           refresh from Graph                                                                                                                      │
+│  /           search by name or id      r           refresh from Graph                                                                                                                      │
 │  0-9         replay a slot             R           raw json (detail)                                                                                                                       │
 │  :           command prompt            c           copy object id                                                                                                                          │
 │                                        a           add to the list in front                                                                                                                │

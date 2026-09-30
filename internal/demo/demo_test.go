@@ -287,3 +287,89 @@ func TestListingsAreNotAnnotated(t *testing.T) {
 		t.Errorf("a plain listing carries @odata.type = %q", got)
 	}
 }
+
+func TestSearchingByAnIDFindsTheObject(t *testing.T) {
+	// End to end: a GUID pasted into the search box reaches Graph as a
+	// filter and comes back with one row.
+	//
+	// The demo writes appId and deviceId as real GUIDs but gives objects
+	// short readable ids ("u0092"), so only the former are exercised here --
+	// a term that is not written like a GUID is deliberately not treated as
+	// one. TestTheDemoFilterMatchesOnObjectID covers the other half.
+	c := NewServer(7).Client()
+	ctx := context.Background()
+
+	exercised := 0
+	for _, res := range graph.All() {
+		if len(res.IDFields) == 0 {
+			t.Errorf("%s has no id fields, so its ids cannot be searched", res.Kind)
+			continue
+		}
+
+		first, err := c.List(ctx, graph.Query{Path: res.Path, Select: res.Select, Top: 1})
+		if err != nil || len(first.Items) == 0 {
+			t.Fatalf("%s: listing the collection: %v", res.Kind, err)
+		}
+		want := first.Items[0].ID()
+
+		for _, field := range res.IDFields {
+			if _, ok := graph.AsGUID(first.Items[0].String(field)); !ok {
+				continue
+			}
+			page, err := c.List(ctx, graph.Query{
+				Path: res.Path, Select: res.Select,
+				SearchFields: res.SearchFields, IDFields: res.IDFields,
+				SearchTerm: first.Items[0].String(field),
+			})
+			if err != nil {
+				t.Errorf("%s by %s: %v", res.Kind, field, err)
+				continue
+			}
+			if len(page.Items) != 1 || page.Items[0].ID() != want {
+				t.Errorf("%s by %s = %d items, want just %s", res.Kind, field, len(page.Items), want)
+			}
+			exercised++
+		}
+	}
+	if exercised == 0 {
+		t.Error("no id property was exercised; the test proved nothing")
+	}
+}
+
+func TestTheDemoFilterMatchesOnObjectID(t *testing.T) {
+	// The stand-in has to understand a filter on "id" as well as on "appId",
+	// which is the half the demo's own readable ids cannot demonstrate
+	// through the search box.
+	c := NewServer(7).Client()
+	ctx := context.Background()
+
+	first, err := c.List(ctx, graph.Query{Path: "/users", Select: []string{"id"}, Top: 1})
+	if err != nil || len(first.Items) == 0 {
+		t.Fatalf("listing users: %v", err)
+	}
+	id := first.Items[0].ID()
+
+	page, err := c.List(ctx, graph.Query{
+		Path: "/users", Select: []string{"id"},
+		Filter: "id eq '" + id + "' or appId eq '" + id + "'",
+	})
+	if err != nil {
+		t.Fatalf("filtering by id: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ID() != id {
+		t.Errorf("got %d items, want just %s", len(page.Items), id)
+	}
+}
+
+func TestAnUnknownFilterIsStillRefused(t *testing.T) {
+	// The stand-in must keep failing loudly on a filter it cannot honour.
+	// One that quietly matched everything would answer a question nobody
+	// asked and let a real bug through to a tenant.
+	c := NewServer(7).Client()
+	_, err := c.List(context.Background(), graph.Query{
+		Path: "/users", Filter: "startswith(displayName, 'A')",
+	})
+	if err == nil {
+		t.Error("the demo accepted a filter it does not implement")
+	}
+}

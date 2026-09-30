@@ -774,7 +774,7 @@ func (m Model) renderHelp() string {
 
 	cols2 := lipgloss.JoinHorizontal(lipgloss.Top,
 		section("SEARCH", [][2]string{
-			{"/", "search the directory"},
+			{"/", "search by name or id"},
 			{"0-9", "replay a slot"},
 			{":", "command prompt"},
 		}),
